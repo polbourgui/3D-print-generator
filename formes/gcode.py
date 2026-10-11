@@ -56,6 +56,7 @@ class ParametresImpression:
     hauteur_max: float = 250.0
     centre: tuple | None = None        # centre de la pièce ; None = centre du plateau
     densite_g_cm3: float = 1.24        # PLA
+    vitesse_z_max: float = 10.0        # mm/s, limite de l'axe Z (trajets non planaires)
     angle_max_porte_a_faux: float = 50.0
 
     # -- Klipper ---------------------------------------------------------------
@@ -93,12 +94,17 @@ class Trajet:
 # Remplissage rectiligne d'un contour
 # ---------------------------------------------------------------------------
 
-def remplissage(contour: np.ndarray, espacement: float, angle_deg: float) -> list[np.ndarray]:
-    """Segments de remplissage (liste de (2,2)) d'un polygone, en zigzag."""
+def remplissage(contour, espacement: float, angle_deg: float) -> list[np.ndarray]:
+    """Segments de remplissage (liste de (2,2)) d'un polygone, en zigzag.
+
+    ``contour`` : un contour (N, 2), ou une liste de contours (extérieur + trous,
+    règle pair-impair).
+    """
+    contours = [contour] if isinstance(contour, np.ndarray) and contour.ndim == 2 else list(contour)
     a = np.radians(angle_deg)
     rot = np.array([[np.cos(a), np.sin(a)], [-np.sin(a), np.cos(a)]])  # monde → local
-    p = contour @ rot.T
-    q = np.roll(p, -1, axis=0)
+    p = np.concatenate([c @ rot.T for c in contours])
+    q = np.concatenate([np.roll(c @ rot.T, -1, axis=0) for c in contours])
     ymin, ymax = p[:, 1].min(), p[:, 1].max()
     segs = []
     for i, y in enumerate(np.arange(ymin + espacement / 2, ymax, espacement)):
@@ -170,23 +176,30 @@ class _Ecrivain:
         self.temps += d / self.p.vitesse_deplacement
         self.pos = pt
 
-    def extruder(self, pts: np.ndarray, vitesse: float, type_: str, deplacer=True):
+    def extruder(self, pts: np.ndarray, vitesse: float, type_: str, deplacer=True, vz_max=None):
+        """Extrude le long de ``pts``. ``vz_max`` : vitesse maximale de l'axe Z (mm/s)."""
         pts = np.asarray(pts, float)
         if deplacer:
             self.deplacer(pts[0])
             pts = pts[1:]
         self._reamorcer()
-        f = f" F{vitesse * 60:.0f}"
+        f_prec = None
         prec = self.pos
         for pt in pts:
             d = np.linalg.norm(pt - prec)
             if d < 1e-4:
                 continue
+            v = vitesse
+            dz = abs(pt[2] - prec[2])
+            if vz_max and dz > 1e-9:
+                v = min(v, vz_max * d / dz)
+            f_mm = int(v * 60)                   # arrondi par défaut : jamais au-dessus de la limite
             self.e += d * self.e_par_mm
             self.filament += d * self.e_par_mm
-            self.temps += d / vitesse
+            self.temps += d / v
+            f = f" F{f_mm}" if f_mm != f_prec else ""
             self(f"G1 X{pt[0]:.3f} Y{pt[1]:.3f} Z{pt[2]:.3f} E{self.e:.5f}{f}")
-            f = ""
+            f_prec = f_mm
             prec = pt
         self.trajet.segments.append((type_, np.vstack([self.pos[None], pts])))
         self.pos = prec
@@ -198,12 +211,29 @@ def _ferme(c: np.ndarray, z: float) -> np.ndarray:
     return np.column_stack([boucle, np.full(len(boucle), z)])
 
 
-def _fond(w: _Ecrivain, contour: np.ndarray, z: float, k: int, vitesse: float):
+def _cercle(centre, rayon: float, n: int = 0) -> np.ndarray:
+    """Cercle CCW (n, 2) ; n = 0 : environ un point par mm."""
+    n = n or max(int(2 * np.pi * rayon), 24)
+    a = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    return np.asarray(centre) + rayon * np.column_stack([np.cos(a), np.sin(a)])
+
+
+def _paroi_douille(p: ParametresImpression, centre, diametre: float) -> np.ndarray:
+    """Périmètre autour du perçage : son bord intérieur tombe sur le diamètre voulu."""
+    return _cercle(centre, diametre / 2 + p.largeur_ligne / 2)
+
+
+def _fond(w: _Ecrivain, contour: np.ndarray, z: float, k: int, vitesse: float, douille=None):
+    """Fond plein, ou en couronne si ``douille = (centre, diamètre)``."""
     p = w.p
     w.extruder(_ferme(contour, z), vitesse, "perimetre")
-    interieur = decaler_contour(contour, -0.85 * p.largeur_ligne)
+    zones = [decaler_contour(contour, -0.85 * p.largeur_ligne)]
+    if douille is not None:
+        centre, diametre = douille
+        w.extruder(_ferme(_paroi_douille(p, centre, diametre), z), vitesse, "perimetre")
+        zones.append(_cercle(centre, diametre / 2 + 1.35 * p.largeur_ligne))
     v_remp = p.vitesse_remplissage if k else vitesse
-    for s in remplissage(interieur, p.largeur_ligne, 45 + 90 * (k % 2)):
+    for s in remplissage(zones, p.largeur_ligne, 45 + 90 * (k % 2)):
         seg = np.column_stack([s, [z, z]])
         # segment voisin : on enchaîne sans déplacement (zigzag continu)
         proche = np.linalg.norm(seg[0, :2] - w.pos[:2]) < 2 * p.largeur_ligne
@@ -280,14 +310,42 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
         if a > p.angle_max_porte_a_faux:
             av.append(f"{q.nom} : surplomb de {a:.0f}° (> {p.angle_max_porte_a_faux:.0f}°)")
 
+    for q in pieces:
+        if q.douille_haut is not None:
+            av.append(f"{q.nom} : perçage sur le dessus, imprimé sans support impossible")
     mode = p.mode
+    if any(q.dentelle is not None for q in pieces):
+        if len(pieces) > 1:
+            av.append("dentelle ignorée : elle ne s'imprime que sur une pièce unique")
+            pieces = [q.copie(dentelle=None) for q in pieces]
+        else:
+            mode = "dentelle"
     if mode == "spirale" and len(pieces) > 1:
         av.append(f"{len(pieces)} pièces : le mode spirale est remplacé par le mode couches")
         mode = "couches"
+    avec_manchon = any(q.douille_bas and q.douille_bas[1] > 0 for q in pieces)
+    if mode == "spirale" and avec_manchon:
+        av.append("manchon de douille : le mode spirale est remplacé par le mode couches")
+        mode = "couches"
+    if mode == "dentelle" and avec_manchon:
+        av.append("manchon de douille : impossible avec la dentelle, manchon ignoré")
+        pieces = [q.copie(douille_bas=(q.douille_bas[0], 0.0)) if q.douille_bas else q for q in pieces]
 
     h = p.hauteur_couche
     hauts = [q.z[-1] for q in pieces]
     nb_couches = int(np.floor(max(hauts) / h + 1e-6))
+    debut_spirale = max(p.couches_fond, 1)   # la 1re couche est toujours à plat
+    if mode == "dentelle":
+        q = pieces[0]
+        d = q.dentelle
+        tours_dentelle, nb_tours, M = d.trajet(q, h, q.z[0] + debut_spirale * h)
+        nb_couches = debut_spirale + nb_tours
+        r = d.resume(q, h)
+        if r["a"] <= 0:
+            av.append("dentelle : maille trop petite pour la hauteur de couche, paroi pleine")
+        if r["pente"] > 60:
+            av.append(f"dentelle : brins très pentus ({r['pente']:.0f}°) ; mailles plus larges "
+                      "(moins de cellules) ou moins hautes conseillées")
     objets = klipper and p.exclude_object
     noms = [_nom_objet(q.nom, i) for i, q in enumerate(pieces)]
 
@@ -347,9 +405,12 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
 
     # -- couches ---------------------------------------------------------------
     plusieurs = len(pieces) > 1
-    debut_spirale = max(p.couches_fond, 1)   # la 1re couche est toujours à plat
     for k in range(nb_couches):
         z = h * (k + 1)
+        if mode == "dentelle" and k >= debut_spirale:
+            j = k - debut_spirale
+            tour = tours_dentelle[j * M:(j + 1) * M]
+            z = float(tour[:, 2].max())
         w(";LAYER_CHANGE")
         w(f";Z:{z:.3f}")
         w(f";HEIGHT:{h}")
@@ -361,11 +422,16 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
             w(f"M106 S{p.ventilateur}")
         v = p.vitesse_premiere_couche if k == 0 else p.vitesse
         for n, q in zip(noms, pieces):
-            if q.z[-1] < z - 1e-6:
+            if q.z[-1] < z - 1e-6 and mode != "dentelle":
                 continue
             if objets:
                 w(f"EXCLUDE_OBJECT_START NAME={n}")
-            if mode == "spirale" and k >= debut_spirale:
+            if mode == "dentelle" and k >= debut_spirale:
+                if k == debut_spirale:
+                    w("M106 S255 ; dentelle : ventilation maximale")
+                w.extruder(tour, min(q.dentelle.vitesse, v), "dentelle",
+                           deplacer=(k == debut_spirale), vz_max=p.vitesse_z_max)
+            elif mode == "spirale" and k >= debut_spirale:
                 c0 = q.contour_a(z - h)
                 c1 = q.contour_a(z)
                 N = len(c0)
@@ -378,10 +444,15 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
                     w.extruder(pts, v, "spirale", deplacer=False)
             else:
                 c = q.contour_a(z)
+                douille = None
+                if q.douille_bas is not None:
+                    douille = (q.pts[0, :, :2].mean(0), q.douille_bas[0])
                 if q.fond and k < p.couches_fond:
-                    _fond(w, c, z, k, v)
+                    _fond(w, c, z, k, v, douille)
                 else:
                     w.extruder(_ferme(c, z), v, "perimetre")
+                    if douille and z <= q.z[0] + q.douille_bas[1] + 1e-6:     # manchon
+                        w.extruder(_ferme(_paroi_douille(p, *douille), z), v, "perimetre")
             if objets:
                 # chaque objet se termine rétracté : si Klipper en saute un,
                 # l'état du filament reste cohérent pour le suivant
@@ -415,7 +486,7 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
     w(f"; total filament used [g] = {masse:.2f}")
     w(f"; estimated printing time (normal mode) = {_duree_texte(duree_s)}")
     w(f"; total layers count = {nb_couches}")
-    w(f"; max_z_height = {nb_couches * h:.3f}")
+    w(f"; max_z_height = {(max(hauts) if mode == 'dentelle' else nb_couches * h):.3f}")
     w("")
     w("; generateur_formes_config = begin")
     meta = {

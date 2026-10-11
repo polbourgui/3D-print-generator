@@ -5,12 +5,11 @@ de **modules de déformation** activables et d'un **emboîtement** optionnel, pu
 exporter en **visualisation 3D** (HTML interactif), **STL** et **G-code Klipper**
 (aperçu Mainsail, métadonnées Moonraker, exclude object, compatible KAMP) ou Marlin.
 
-> Ce dossier est indépendant du site vitrine et exclu de son déploiement (`.assetsignore`).
-
 ## Installation
 
 ```bash
-cd generateur-formes
+git clone https://github.com/polbourgui/3D-print-generator.git
+cd 3D-print-generator
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 jupyter lab generateur_formes.ipynb

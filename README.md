@@ -7,27 +7,59 @@ exporter en **visualisation 3D** (HTML interactif), **STL** et **G-code Klipper*
 
 ## Installation
 
-Une seule ligne à copier-coller : elle clone le dépôt, crée l'environnement virtuel
-`.venv`, installe les dépendances et ouvre le notebook.
+**Windows, le plus simple :** téléchargez le dépôt (bouton vert **Code → Download ZIP** sur
+GitHub, puis extrayez-le) ou clonez-le, et **double-cliquez sur `Lancer.bat`**. La première
+fois, il crée l'environnement Python et installe les dépendances (quelques minutes) ; ensuite
+il ouvre directement l'application dans le navigateur.
+
+Ou bien, une seule ligne à copier-coller : elle clone le dépôt, crée l'environnement virtuel
+`.venv`, installe les dépendances et ouvre l'application dans le navigateur.
 
 **Windows (PowerShell)**
 
 ```powershell
-git clone https://github.com/polbourgui/3D-print-generator.git; cd 3D-print-generator; python -m venv .venv; .venv\Scripts\python -m pip install -r requirements.txt; .venv\Scripts\python -m jupyter lab generateur_formes.ipynb
+git clone https://github.com/polbourgui/3D-print-generator.git; cd 3D-print-generator; python -m venv .venv; .venv\Scripts\python -m pip install -r requirements.txt; .venv\Scripts\python lancer.py
 ```
 
 **Linux / macOS**
 
 ```bash
-git clone https://github.com/polbourgui/3D-print-generator.git && cd 3D-print-generator && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt && .venv/bin/python -m jupyter lab generateur_formes.ipynb
+git clone https://github.com/polbourgui/3D-print-generator.git && cd 3D-print-generator && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt && .venv/bin/python lancer.py
 ```
 
 Les commandes appellent directement le Python du `.venv` : pas besoin de l'activer
 (ni de modifier la politique d'exécution des scripts sous Windows).
 
-Pour relancer le notebook plus tard, depuis le dossier `3D-print-generator` :
-`.venv\Scripts\python -m jupyter lab generateur_formes.ipynb` (Windows) ou
-`.venv/bin/python -m jupyter lab generateur_formes.ipynb` (Linux / macOS).
+### Relancer plus tard
+
+Depuis le dossier `3D-print-generator` (remplacez `.venv\Scripts\python` par
+`.venv/bin/python` sous Linux / macOS) :
+
+| commande | ce qui s'ouvre |
+|---|---|
+| double-clic sur `Lancer.bat`, ou `.venv\Scripts\python lancer.py` | l'application seule, sans code, le navigateur s'ouvre tout seul |
+| `.venv\Scripts\python -m jupyter lab generateur_formes.ipynb` | la même application dans Jupyter Lab (menu **Run → Run All Cells**) |
+| `.venv\Scripts\python -m jupyter lab generateur_formes_script.ipynb` | la version en code |
+
+Pour arrêter : **Ctrl + C** dans le terminal, ou fermez sa fenêtre.
+Si le navigateur ne s'ouvre pas, copiez l'adresse affichée dans le terminal (`http://localhost:8866/`).
+
+## Application
+
+Tout se règle à la souris, sans saisie :
+
+| onglet | contenu |
+|---|---|
+| **Forme** | profil de base (menu déroulant) et dimensions ; seuls les réglages utiles au profil sont affichés |
+| **Déformations** | une case pour activer chaque module, ses curseurs, ↑ / ↓ pour l'ordre d'application |
+| **Emboîtement** | boutons radio : aucun, gigogne, empilement, réseau, couvercle |
+| **Impression** | préréglages d'imprimante (Voron, Creality K1, Ender 3, Prusa…) et de filament (PLA, PETG, ABS, ASA, TPU), firmware, mode spirale / couches, vitesses, options Klipper (macros, purge KAMP, maillage adaptatif, exclude object) |
+| **Export** | HTML, STL et G-code en un clic, trajet G-code, ouverture du dossier `sorties/`, sauvegarde et chargement des réglages |
+
+En haut : **Aperçu** (Rapide / Normal / Fin) règle la finesse de la vue pendant les
+réglages (les exports utilisent toujours la résolution de l'onglet Forme), et
+**Surprise** tire une combinaison de déformations au hasard. Au-dessus de la vue,
+l'encombrement et les alertes (plateau, hauteur, surplombs) se mettent à jour en direct.
 
 ## Principe
 
@@ -97,6 +129,8 @@ charge déjà, gardez `maillage_adaptatif=False` et `purge=None`.
 
 ## Utilisation en script
 
+(voir aussi `generateur_formes_script.ipynb`)
+
 ```python
 from formes import *
 
@@ -127,8 +161,9 @@ class MaDeformation(Deformation):
         return f
 ```
 
-Le panneau interactif du notebook (`formes.interface.panneau`) génère ses curseurs
-automatiquement à partir des `param(...)`.
+L'application (`formes/application.py`) génère ses curseurs automatiquement à partir des
+`param(...)` : ajoutez le module à la liste `TOUTES` en bas du fichier et il apparaît
+dans l'onglet Déformations.
 
 ## Tests
 

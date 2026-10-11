@@ -77,7 +77,7 @@ def figure_3d(assemblage: Assemblage | Forme, titre: str = "Forme", aretes: bool
 def trajet_apercu(p: Forme, h: float = 0.2, couches_fond: int = 4, max_points: int = 60_000):
     """Brins de la dentelle tels qu'imprimés, ramenés dans l'orientation de la vue."""
     q = p.retourner() if p.retournee else p
-    pts, _, _ = q.dentelle.trajet(q, h, q.z[0] + couches_fond * h)
+    pts = q.dentelle.points(q.dentelle.trajet(q, h, q.z[0] + couches_fond * h))
     if p.retournee:                      # retourner() est son propre inverse : même boîte
         mn, mx = q.boite()
         pts = pts.copy()

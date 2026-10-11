@@ -351,24 +351,24 @@ class Application:
 
         case.observe(basculer, names="value")
         calibration = W.Button(description="Pièce de calibration", icon="flask",
-                               tooltip="petit cylindre, maille de 4 à 12 mm du bas vers le haut",
+                               tooltip="petit cylindre, étages de 3 à 8 mm du bas vers le haut",
                                layout=W.Layout(width="220px"))
         calibration.on_click(lambda _: self._executer(self.calibration_dentelle))
         aide = W.HTML(
-            "<small>La buse suit une vague en Z : chaque tour se pose sur les crêtes du précédent "
-            "et passe dans le vide entre deux nœuds. Seul le <b>G-code</b> contient les jours "
-            "(le STL reste plein). Ventilation forcée à 100 %, vitesse Z limitée (onglet Impression). "
-            "Commencez par la <b>pièce de calibration</b> pour trouver la maille qui tient sur "
-            "votre machine.</small>")
+            "<small>Impression en fil : à chaque étage, la buse monte lentement dans le vide, "
+            "marque une pause pour que le brin fige, redescend en diagonale, puis imprime un "
+            "anneau qui relie les sommets et sert d'appui à l'étage suivant. Seul le <b>G-code</b> "
+            "contient les jours (le STL reste plein). Ventilation à 100 %, buse 5 à 10 °C plus "
+            "froide que d'habitude. Commencez par la <b>pièce de calibration</b>.</small>")
         return W.VBox([case, corps, calibration, aide])
 
     def calibration_dentelle(self):
-        """Petit cylindre de test : maille de 4 mm (bas) à 12 mm (haut)."""
+        """Petit cylindre de test : étages de 3 mm (bas) à 8 mm (haut)."""
         self._suspendu = True
         try:
-            regles = {("Base", "profil"): "cercle", ("Base", "rayon"): 20.0, ("Base", "hauteur"): 50.0,
-                      ("Dentelle", "motif"): "losanges", ("Dentelle", "cellules"): 10,
-                      ("Dentelle", "hauteur_maille"): 4.0, ("Dentelle", "maille_haut"): 12.0,
+            regles = {("Base", "profil"): "cercle", ("Base", "rayon"): 20.0, ("Base", "hauteur"): 40.0,
+                      ("Dentelle", "motif"): "losanges", ("Dentelle", "cellules"): 16,
+                      ("Dentelle", "hauteur_maille"): 3.0, ("Dentelle", "maille_haut"): 8.0,
                       ("Dentelle", "bord_bas"): 3.0, ("Dentelle", "bord_haut"): 3.0,
                       ("Dentelle", "actif"): True, ("Emboitement", "choix"): "Aucun"}
             for d in self.deformations:
@@ -379,8 +379,8 @@ class Application:
         finally:
             self._suspendu = False
         self.rafraichir()
-        print("🧪 pièce de calibration chargée : imprimez-la, puis gardez la maille la plus haute "
-              "dont les brins sont restés tendus")
+        print("🧪 pièce de calibration chargée : imprimez-la, puis gardez l'étage le plus haut "
+              "dont les brins sont restés droits et soudés à l'anneau")
 
     def _onglet_impression(self):
         W = self.W
@@ -603,13 +603,18 @@ class Application:
         emb = self.emboitements.get(self.emboitement_choisi)
         if self.dentelle.actif and len(a) == 1:
             r = self.dentelle.resume(a.pour_impression().pieces[0], p.hauteur_couche)
-            lignes.append(f"🕸 dentelle : maille ≈ {r['largeur']:.1f} × {r['hauteur']:.1f} mm "
-                          f"(l × h), brins à {r['pente']:.0f}° · G-code uniquement")
-            if r["a"] <= 0:
-                alertes.append("maille trop petite : la paroi restera pleine")
-            if r["pente"] > 60:
-                alertes.append(f"brins très pentus ({r['pente']:.0f}°) : moins de cellules "
-                               "ou mailles moins hautes")
+            lignes.append(f"🕸 dentelle : {r['etages']} étages, maille ≈ {r['largeur']:.1f} × "
+                          f"{r['hauteur']:.1f} mm (l × h), diagonales à {r['angle_min']:.0f}°"
+                          + (f"–{r['angle_max']:.0f}°" if r['angle_max'] - r['angle_min'] > 1 else "")
+                          + " · G-code uniquement")
+            if r["etages"] == 0:
+                alertes.append("pas assez de hauteur entre les bords : la paroi restera pleine")
+            if r["angle_min"] < 30:
+                alertes.append(f"diagonales couchées ({r['angle_min']:.0f}°) : elles risquent de "
+                               "s'affaisser ; plus de cellules ou des étages plus hauts")
+            if r["angle_max"] > 70:
+                alertes.append(f"diagonales raides ({r['angle_max']:.0f}°) : la buse peut accrocher ; "
+                               "moins de cellules ou des étages plus bas")
         elif self.dentelle.actif:
             alertes.append("dentelle ignorée : elle ne s'imprime que sur une pièce unique")
         if isinstance(emb, Luminaire):

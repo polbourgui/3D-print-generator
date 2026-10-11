@@ -52,7 +52,7 @@ Tout se règle à la souris, sans saisie :
 |---|---|
 | **Forme** | profil de base (menu déroulant) et dimensions ; seuls les réglages utiles au profil sont affichés |
 | **Déformations** | une case pour activer chaque module, ses curseurs, ↑ / ↓ pour l'ordre d'application |
-| **Emboîtement** | boutons radio : aucun, gigogne, empilement, réseau, couvercle |
+| **Emboîtement** | boutons radio : aucun, gigogne, empilement, réseau, couvercle, luminaire |
 | **Impression** | préréglages d'imprimante (Voron, Creality K1, Ender 3, Prusa…) et de filament (PLA, PETG, ABS, ASA, TPU), firmware, mode spirale / couches, vitesses, options Klipper (macros, purge KAMP, maillage adaptatif, exclude object) |
 | **Export** | HTML, STL et G-code en un clic, trajet G-code, ouverture du dossier `sorties/`, sauvegarde et chargement des réglages |
 
@@ -78,7 +78,29 @@ Base ──► Fuseau ──► Torsion ──► Ondulation ──► … ─�
 |---|---|
 | Base | `cercle`, `polygone`, `etoile`, `superellipse`, `goutte`, `fleur`, `engrenage` |
 | Déformations | `Fuseau`, `Torsion`, `Ondulation`, `Plis`, `Bruit`, `Pincement`, `Courbure`, `Nervures`, `Losanges`, `Ecailles`, `Facettes`, `Bec` |
-| Emboîtements | `Gigogne` (coques imbriquées imprimables en place), `Empilement` (modules à col d'emboîtement, chanfrein 45°), `Reseau` (grille), `Couvercle` (couvercle à col, retourné automatiquement pour l'impression) |
+| Emboîtements | `Gigogne` (coques imbriquées imprimables en place), `Empilement` (modules à col d'emboîtement, chanfrein 45°), `Reseau` (grille), `Couvercle` (couvercle à col, retourné automatiquement pour l'impression), `Luminaire` (abat-jour : fond percé pour douille E27 / E14 / GU10, suspension ou à poser) |
+
+### Luminaires et abats-jour
+
+`Luminaire` remplace le fond (ou le dessus) par une **couronne percée** pour la douille ; la
+couronne se serre entre la douille et sa bague filetée.
+
+| culot | perçage (avant jeu) |
+|---|---|
+| E27 (douille à bague filetée) | Ø 40 mm |
+| E14 (douille à bague filetée) | Ø 28 mm |
+| GU10 / MR16 (passage du spot) | Ø 50 mm |
+| perso | réglable |
+
+Ces cotes sont les plus courantes : mesurez votre douille au pied à coulisse et passez en
+« perso » si elle diffère.
+
+- **suspension** : douille en haut, bas ouvert ; la pièce est retournée pour l'impression
+  (couronne sur le plateau), ce qui reste compatible avec le mode vase.
+- **à poser** : douille au fond.
+- **manchon** (optionnel) : tube de centrage autour du perçage ; impose le mode couches.
+- L'épaisseur de la couronne vaut `couches_fond × hauteur_couche` : visez au moins 1,2 mm.
+- Ampoules **LED uniquement** : le PLA ramollit vers 60 °C (PETG ≈ 80 °C).
 
 ### G-code
 

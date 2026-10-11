@@ -23,9 +23,13 @@ import numpy as np
 # Paramètres de modules (avec bornes, pour générer une interface automatique)
 # --------------------------------------------------------------------------
 
-def param(defaut, mini=None, maxi=None, pas=None, aide=""):
-    """Déclare un paramètre de module avec ses bornes pour les curseurs."""
-    return field(default=defaut, metadata={"min": mini, "max": maxi, "pas": pas, "aide": aide})
+def param(defaut, mini=None, maxi=None, pas=None, aide="", choix=None):
+    """Déclare un paramètre de module avec ses bornes pour les curseurs.
+
+    ``choix`` : liste de valeurs possibles (affichée en menu déroulant).
+    """
+    return field(default=defaut, metadata={"min": mini, "max": maxi, "pas": pas, "aide": aide,
+                                            "choix": choix})
 
 
 @dataclass
@@ -61,10 +65,14 @@ class Forme:
     fond: bool = True          # la pièce a-t-elle un fond plein (G-code) ?
     ferme_haut: bool = False   # fermer le haut du maillage (visualisation/STL)
     retournee: bool = False    # montrée à l'envers : à retourner pour l'impression
+    # fond / dessus percés pour une douille : (diamètre du perçage, hauteur du manchon) en mm,
+    # centrés sur la couche du bas / du haut ; le manchon part du fond vers l'intérieur
+    douille_bas: tuple | None = None
+    douille_haut: tuple | None = None
 
     def copie(self, **kw) -> "Forme":
         d = dict(pts=self.pts.copy(), nom=self.nom, fond=self.fond, ferme_haut=self.ferme_haut,
-                 retournee=self.retournee)
+                 retournee=self.retournee, douille_bas=self.douille_bas, douille_haut=self.douille_haut)
         d.update(kw)
         return Forme(**d)
 
@@ -108,6 +116,7 @@ class Forme:
         pts[:, :, 1] = mn[1] + mx[1] - pts[:, :, 1]
         pts[:, :, 2] = mn[2] + mx[2] - pts[:, :, 2]
         return self.copie(pts=pts, fond=self.ferme_haut, ferme_haut=self.fond,
+                          douille_bas=self.douille_haut, douille_haut=self.douille_bas,
                           retournee=not self.retournee)
 
     def contour_a(self, z: float) -> np.ndarray:
@@ -135,15 +144,36 @@ class Forme:
         tris = [np.stack([a, b, c], -1).reshape(-1, 3),
                 np.stack([a, c, d], -1).reshape(-1, 3)]
         n = L * N
-        if self.fond:
-            sommets.append(np.r_[self.pts[0, :, :2].mean(0), self.z[0]][None])
-            ring = idx[0]
-            tris.append(np.stack([np.full(N, n), ring[np.r_[1:N, 0]], ring], -1))
-            n += 1
-        if self.ferme_haut:
-            sommets.append(np.r_[self.pts[-1, :, :2].mean(0), self.z[-1]][None])
-            ring = idx[-1]
-            tris.append(np.stack([np.full(N, n), ring, ring[np.r_[1:N, 0]]], -1))
+        suiv = np.r_[1:N, 0]
+        for actif, couche, douille, sens in [(self.fond, 0, self.douille_bas, 1),
+                                             (self.ferme_haut, -1, self.douille_haut, -1)]:
+            if not actif:
+                continue
+            ring = idx[couche]
+            z0 = self.z[couche]
+            c = self.pts[couche, :, :2].mean(0)
+            if douille is None:                      # disque plein
+                sommets.append(np.r_[c, z0][None])
+                a, b = (ring[suiv], ring) if sens > 0 else (ring, ring[suiv])
+                tris.append(np.stack([np.full(N, n), a, b], -1))
+                n += 1
+                continue
+            # couronne entre le contour et le perçage, puis manchon éventuel
+            d = self.pts[couche, :, :2] - c
+            ang = np.arctan2(d[:, 1], d[:, 0])
+            cercle = c + douille[0] / 2 * np.column_stack([np.cos(ang), np.sin(ang)])
+            sommets.append(np.column_stack([cercle, np.full(N, z0)]))
+            trou = np.arange(n, n + N)
+            n += N
+            q = [trou, ring[suiv], ring, trou[suiv]]
+            if sens < 0:
+                q = [trou, ring, ring[suiv], trou[suiv]]
+            tris += [np.stack([q[0], q[1], q[2]], -1), np.stack([q[0], q[3], q[1]], -1)]
+            if douille[1] > 0:
+                sommets.append(np.column_stack([cercle, np.full(N, z0 + sens * douille[1])]))
+                bout = np.arange(n, n + N)
+                n += N
+                tris += [np.stack([trou, bout, bout[suiv]], -1), np.stack([trou, bout[suiv], trou[suiv]], -1)]
         return np.concatenate(sommets), np.concatenate(tris).astype(np.int64)
 
 

@@ -93,12 +93,17 @@ class Trajet:
 # Remplissage rectiligne d'un contour
 # ---------------------------------------------------------------------------
 
-def remplissage(contour: np.ndarray, espacement: float, angle_deg: float) -> list[np.ndarray]:
-    """Segments de remplissage (liste de (2,2)) d'un polygone, en zigzag."""
+def remplissage(contour, espacement: float, angle_deg: float) -> list[np.ndarray]:
+    """Segments de remplissage (liste de (2,2)) d'un polygone, en zigzag.
+
+    ``contour`` : un contour (N, 2), ou une liste de contours (extérieur + trous,
+    règle pair-impair).
+    """
+    contours = [contour] if isinstance(contour, np.ndarray) and contour.ndim == 2 else list(contour)
     a = np.radians(angle_deg)
     rot = np.array([[np.cos(a), np.sin(a)], [-np.sin(a), np.cos(a)]])  # monde → local
-    p = contour @ rot.T
-    q = np.roll(p, -1, axis=0)
+    p = np.concatenate([c @ rot.T for c in contours])
+    q = np.concatenate([np.roll(c @ rot.T, -1, axis=0) for c in contours])
     ymin, ymax = p[:, 1].min(), p[:, 1].max()
     segs = []
     for i, y in enumerate(np.arange(ymin + espacement / 2, ymax, espacement)):
@@ -198,12 +203,29 @@ def _ferme(c: np.ndarray, z: float) -> np.ndarray:
     return np.column_stack([boucle, np.full(len(boucle), z)])
 
 
-def _fond(w: _Ecrivain, contour: np.ndarray, z: float, k: int, vitesse: float):
+def _cercle(centre, rayon: float, n: int = 0) -> np.ndarray:
+    """Cercle CCW (n, 2) ; n = 0 : environ un point par mm."""
+    n = n or max(int(2 * np.pi * rayon), 24)
+    a = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    return np.asarray(centre) + rayon * np.column_stack([np.cos(a), np.sin(a)])
+
+
+def _paroi_douille(p: ParametresImpression, centre, diametre: float) -> np.ndarray:
+    """Périmètre autour du perçage : son bord intérieur tombe sur le diamètre voulu."""
+    return _cercle(centre, diametre / 2 + p.largeur_ligne / 2)
+
+
+def _fond(w: _Ecrivain, contour: np.ndarray, z: float, k: int, vitesse: float, douille=None):
+    """Fond plein, ou en couronne si ``douille = (centre, diamètre)``."""
     p = w.p
     w.extruder(_ferme(contour, z), vitesse, "perimetre")
-    interieur = decaler_contour(contour, -0.85 * p.largeur_ligne)
+    zones = [decaler_contour(contour, -0.85 * p.largeur_ligne)]
+    if douille is not None:
+        centre, diametre = douille
+        w.extruder(_ferme(_paroi_douille(p, centre, diametre), z), vitesse, "perimetre")
+        zones.append(_cercle(centre, diametre / 2 + 1.35 * p.largeur_ligne))
     v_remp = p.vitesse_remplissage if k else vitesse
-    for s in remplissage(interieur, p.largeur_ligne, 45 + 90 * (k % 2)):
+    for s in remplissage(zones, p.largeur_ligne, 45 + 90 * (k % 2)):
         seg = np.column_stack([s, [z, z]])
         # segment voisin : on enchaîne sans déplacement (zigzag continu)
         proche = np.linalg.norm(seg[0, :2] - w.pos[:2]) < 2 * p.largeur_ligne
@@ -280,9 +302,15 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
         if a > p.angle_max_porte_a_faux:
             av.append(f"{q.nom} : surplomb de {a:.0f}° (> {p.angle_max_porte_a_faux:.0f}°)")
 
+    for q in pieces:
+        if q.douille_haut is not None:
+            av.append(f"{q.nom} : perçage sur le dessus, imprimé sans support impossible")
     mode = p.mode
     if mode == "spirale" and len(pieces) > 1:
         av.append(f"{len(pieces)} pièces : le mode spirale est remplacé par le mode couches")
+        mode = "couches"
+    if mode == "spirale" and any(q.douille_bas and q.douille_bas[1] > 0 for q in pieces):
+        av.append("manchon de douille : le mode spirale est remplacé par le mode couches")
         mode = "couches"
 
     h = p.hauteur_couche
@@ -378,10 +406,15 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
                     w.extruder(pts, v, "spirale", deplacer=False)
             else:
                 c = q.contour_a(z)
+                douille = None
+                if q.douille_bas is not None:
+                    douille = (q.pts[0, :, :2].mean(0), q.douille_bas[0])
                 if q.fond and k < p.couches_fond:
-                    _fond(w, c, z, k, v)
+                    _fond(w, c, z, k, v, douille)
                 else:
                     w.extruder(_ferme(c, z), v, "perimetre")
+                    if douille and z <= q.z[0] + q.douille_bas[1] + 1e-6:     # manchon
+                        w.extruder(_ferme(_paroi_douille(p, *douille), z), v, "perimetre")
             if objets:
                 # chaque objet se termine rétracté : si Klipper en saute un,
                 # l'état du filament reste cohérent pour le suivant

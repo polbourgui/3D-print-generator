@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from formes import (Assemblage, Base, Bec, Bruit, Couvercle, Courbure, Ecailles, Empilement, Facettes,
+from formes import (Assemblage, Base, Luminaire, Bec, Bruit, Couvercle, Courbure, Ecailles, Empilement, Facettes,
                     Fuseau, Generateur, Gigogne, Losanges, Nervures, Ondulation, ParametresImpression,
                     Pincement, Plis, Reseau, Torsion, generer_gcode)
 from formes.gcode import _porte_a_faux
@@ -265,9 +265,66 @@ def test_application(tmp_path):
     assert app.impression.temp_buse == 235 and app.impression.plateau == (350.0, 350.0)
     app._deplacer(app.deformations[-1], -1)
     assert "2 pièces" in app.infos.value
+    w[("Emboitement", "choix")].value = "Luminaire"
+    w[("Luminaire", "culot")].value = "E14"
+    w[("Luminaire", "montage")].value = "a poser"
+    assert "douille E14" in app.infos.value
+    w[("Emboitement", "choix")].value = "Couvercle"
     app.exporter_tout()
     assert len(list(tmp_path.glob(f"{app.nom.value}.*"))) == 3
     app.sauvegarder()
     autre = Application(tmp_path)
     autre.charger(app.nom.value)
     assert autre.reglages() == app.reglages()
+
+
+def test_remplissage_avec_trou():
+    carre = np.array([[0, 0], [20, 0], [20, 20], [0, 20]], float)
+    a = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+    trou = 10 + 5 * np.column_stack([np.cos(a), np.sin(a)])
+    for s in remplissage([carre, trou], 0.5, 0):
+        milieu = s.mean(0)
+        assert np.linalg.norm(milieu - 10) > 5 - 1e-6     # aucun segment ne traverse le trou
+
+
+def lampe(**kw):
+    base = Base(rayon=50, hauteur=40, couches=40, points=180)
+    return Generateur(base, [Fuseau(echelle_haut=0.7, ventre=0)], Luminaire(**kw))
+
+
+@pytest.mark.parametrize("culot, d", [("E27", 40), ("E14", 28), ("GU10", 50)])
+def test_luminaire_suspension(culot, d):
+    a = lampe(culot=culot, jeu=0.5).generer()
+    f = a.pieces[0]
+    assert f.douille_haut == (d + 0.5, 0.0) and not f.fond and f.ferme_haut and f.retournee
+    imp = a.pour_impression().pieces[0]
+    assert imp.fond and imp.douille_bas == (d + 0.5, 0.0) and imp.douille_haut is None
+    texte, trajet = generer_gcode(a, ParametresImpression(vignettes=(), couches_fond=5))
+    assert trajet.stats["mode"] == "spirale" and not trajet.avertissements
+    # 1re couche : un périmètre autour du perçage, bord intérieur au bon diamètre
+    centre = np.array([110.0, 110.0])
+    for typ, pts in trajet.segments:
+        if typ == "remplissage" and pts[:, 2].max() < 0.25:
+            assert np.linalg.norm(pts[:, :2] - centre, axis=1).min() > (d + 0.5) / 2
+    rayons = [np.linalg.norm(pts[:, :2] - centre, axis=1).mean() for typ, pts in trajet.segments
+              if typ == "perimetre" and pts[:, 2].max() < 0.25]
+    assert min(rayons) == pytest.approx((d + 0.5) / 2 + 0.45 / 2, abs=0.1)
+
+
+def test_luminaire_a_poser_avec_manchon():
+    a = lampe(culot="perso", diametre_perso=30, jeu=0, montage="a poser", manchon=6).generer()
+    f = a.pieces[0]
+    assert f.fond and f.douille_bas == (30, 6) and not f.retournee
+    v, t = f.maillage()
+    assert np.isfinite(v).all() and t.max() < len(v)
+    texte, trajet = generer_gcode(a, ParametresImpression(vignettes=()))
+    assert trajet.stats["mode"] == "couches"
+    centre = np.array([110.0, 110.0])
+    manchon = [pts for typ, pts in trajet.segments if typ == "perimetre"
+               and abs(np.linalg.norm(pts[:, :2] - centre, axis=1).mean() - 15.225) < 0.1]
+    assert max(pts[:, 2].max() for pts in manchon) == pytest.approx(6.0)
+
+
+def test_luminaire_trop_etroit():
+    with pytest.raises(ValueError, match="trop étroit"):
+        Generateur(Base(rayon=20), [], Luminaire(culot="E27")).generer()

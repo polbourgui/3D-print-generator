@@ -18,6 +18,9 @@ def _widget(module, nom, valeur, meta, rafraichir):
     layout = W.Layout(width="440px")
     if nom == "profil":
         w = W.Dropdown(options=PROFILS, value=valeur, description=nom, style=style, layout=layout)
+    elif meta.get("choix"):
+        w = W.Dropdown(options=list(meta["choix"]), value=valeur, description=nom, style=style,
+                       layout=layout)
     elif isinstance(valeur, bool):
         w = W.Checkbox(value=valeur, description=nom)
     elif isinstance(valeur, int):

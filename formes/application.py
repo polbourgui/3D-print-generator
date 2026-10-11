@@ -29,7 +29,7 @@ from pathlib import Path
 
 from .bases import PROFILS, Base
 from .deformations import TOUTES, Fuseau, Torsion
-from .emboitements import TOUS
+from .emboitements import TOUS, Luminaire
 from .gcode import ParametresImpression, _porte_a_faux, exporter_gcode
 from .generateur import Generateur
 from .geometrie import Assemblage
@@ -102,7 +102,10 @@ DESCRIPTIONS = {
     "Empilement": "modules empilables à col",
     "Reseau": "copies en grille",
     "Couvercle": "couvercle à col ajusté",
+    "Luminaire": "abat-jour, fond percé pour douille E27 / E14 / GU10",
 }
+
+LIBELLES = {"a poser": "à poser"}
 
 APERCU = {"Rapide": (60, 144), "Normal": (120, 240), "Fin": (None, None)}
 
@@ -116,7 +119,16 @@ def _curseur(nom, valeur, meta, description=None):
 
     commun = dict(description=description or nom.replace("_", " "), style=STYLE,
                   layout=W.Layout(width="98%", max_width=LARGEUR), continuous_update=False)
-    if isinstance(valeur, bool):
+    if meta.get("choix"):
+        options = [(LIBELLES.get(c, c), c) for c in meta["choix"]]
+        if len(options) <= 4:          # boutons côte à côte
+            w = W.ToggleButtons(options=options, value=valeur, description=commun["description"],
+                                style={**STYLE, "button_width": "92px"},
+                                layout=W.Layout(flex="0 0 auto", min_height="36px"))
+        else:
+            w = W.Dropdown(options=options, value=valeur, description=commun["description"],
+                           style=STYLE, layout=commun["layout"])
+    elif isinstance(valeur, bool):
         w = W.Checkbox(value=valeur, description=commun["description"], indent=False)
     elif isinstance(valeur, int):
         w = W.IntSlider(value=valeur, min=meta.get("min") or 0, max=meta.get("max") or 100,
@@ -535,6 +547,16 @@ class Application:
         if pire > p.angle_max_porte_a_faux:
             alertes.append(f"surplomb de {pire:.0f}° (> {p.angle_max_porte_a_faux:.0f}°) : "
                            "réduisez courbure, bec ou galbe")
+        emb = self.emboitements.get(self.emboitement_choisi)
+        if isinstance(emb, Luminaire):
+            ep = p.couches_fond * p.hauteur_couche
+            lignes.append(f"💡 douille {emb.culot} ({emb.montage}) : perçage Ø {emb.diametre:.1f} mm · "
+                          f"couronne {ep:.1f} mm d'épaisseur · ampoule LED uniquement")
+            if ep < 1.2:
+                alertes.append(f"couronne fine ({ep:.1f} mm) : montez « couches de fond » "
+                               "(onglet Impression) pour la solidité")
+            if emb.manchon > 0 and p.mode == "spirale":
+                lignes.append("<small>le manchon impose le mode couches (pas de mode vase)</small>")
         for al in alertes:
             lignes.append(f"<span style='color:#e8a33a'>⚠ {al}</span>")
         if not alertes:

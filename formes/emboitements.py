@@ -6,6 +6,7 @@
                    dans le pied de la suivante.
 - ``Reseau``     : copies disposées en grille, avec variation de rotation/échelle.
 - ``Couvercle``  : ajoute un couvercle à col qui s'emboîte dans l'ouverture.
+- ``Luminaire``  : abat-jour ; fond percé (couronne) pour une douille E27, E14, GU10…
 """
 
 from __future__ import annotations
@@ -184,4 +185,67 @@ class Couvercle(Emboitement):
         return Assemblage([forme.copie(), couvercle])
 
 
-TOUS = [Gigogne, Empilement, Reseau, Couvercle]
+
+# Diamètre de perçage typique par culot (mm, avant jeu). Valeurs courantes du
+# commerce : mesurez votre douille au pied à coulisse et choisissez « perso » si besoin.
+CULOTS = {
+    "E27": (40.0, "douille E27 à bague filetée : filetage ≈ Ø 40 mm"),
+    "E14": (28.0, "douille E14 à bague filetée : filetage ≈ Ø 28 mm"),
+    "GU10": (50.0, "spot GU10 / MR16 : passage du spot Ø 50 mm"),
+    "perso": (None, "diamètre réglé par « diametre perso »"),
+}
+
+
+@dataclass
+class Luminaire(Emboitement):
+    """Transforme la forme en abat-jour : un fond en couronne percé pour la douille.
+
+    - ``suspension`` : la douille est en haut (lampe suspendue) ; le bas reste
+      ouvert. Pour l'impression, l'abat-jour est retourné : le dessus percé est
+      posé sur le plateau (compatible mode vase).
+    - ``a poser`` : la douille est au fond (lampe à poser, veilleuse).
+
+    La couronne est serrée entre la douille et sa bague filetée. Épaisseur de la
+    couronne = couches_fond × hauteur_couche (onglet Impression) : visez ≥ 1,2 mm.
+    Le manchon (optionnel) centre l'abat-jour sur la douille, mais impose le mode
+    couches. Utilisez des ampoules LED : le PLA ramollit vers 60 °C (PETG ≈ 80 °C).
+    """
+
+    culot: str = param("E27", aide="type de douille", choix=tuple(CULOTS))
+    montage: str = param("suspension", aide="douille en haut (suspension) ou au fond (à poser)",
+                         choix=("suspension", "a poser"))
+    diametre_perso: float = param(40.0, 10, 80, 0.5, "diamètre du perçage si culot = perso (mm)")
+    jeu: float = param(0.6, 0, 3, 0.1, "jeu ajouté au diamètre du perçage (mm)")
+    manchon: float = param(0.0, 0, 30, 1, "hauteur du manchon de centrage (mm, 0 = aucun)")
+    marge: float = param(4.0, 1, 30, 0.5, "largeur minimale de la couronne autour du perçage (mm)")
+
+    @property
+    def diametre(self) -> float:
+        if self.culot not in CULOTS:
+            raise ValueError(f"culot inconnu : {self.culot!r} (choix : {', '.join(CULOTS)})")
+        d = CULOTS[self.culot][0]
+        return (self.diametre_perso if d is None else d) + self.jeu
+
+    def appliquer(self, forme):
+        if self.montage not in ("suspension", "a poser"):
+            raise ValueError(f"montage inconnu : {self.montage!r} (suspension | a poser)")
+        suspension = self.montage == "suspension"
+        couche = forme.pts[-1 if suspension else 0, :, :2]
+        r_min = float(np.hypot(*(couche - couche.mean(0)).T).min())
+        r_requis = self.diametre / 2 + self.marge
+        if r_min < r_requis:
+            extremite = "le haut" if suspension else "le bas"
+            raise ValueError(f"{extremite} de la forme est trop étroit pour une douille {self.culot} : "
+                             f"rayon {r_min:.1f} mm, il faut au moins {r_requis:.1f} mm "
+                             "(agrandissez le rayon ou l'échelle de cette extrémité)")
+        douille = (self.diametre, float(self.manchon))
+        if suspension:
+            f = forme.copie(fond=False, ferme_haut=True, douille_bas=None, douille_haut=douille,
+                            retournee=True)
+        else:
+            f = forme.copie(fond=True, ferme_haut=False, douille_bas=douille, douille_haut=None)
+        f.nom = "abat-jour"
+        return Assemblage([f])
+
+
+TOUS = [Gigogne, Empilement, Reseau, Couvercle, Luminaire]

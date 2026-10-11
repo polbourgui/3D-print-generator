@@ -216,3 +216,24 @@ def decaler_contour(contour: np.ndarray, d: float) -> np.ndarray:
 def aire_signee(contour: np.ndarray) -> float:
     x, y = contour[:, 0], contour[:, 1]
     return 0.5 * float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
+
+
+def enveloppe_convexe(points: np.ndarray) -> np.ndarray:
+    """Enveloppe convexe 2D (algorithme de la chaîne monotone), sens CCW."""
+    p = np.unique(np.round(np.asarray(points)[:, :2], 6), axis=0)
+    if len(p) < 3:
+        return p
+
+    def croix(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    bas, haut = [], []
+    for q in p:
+        while len(bas) >= 2 and croix(bas[-2], bas[-1], q) <= 0:
+            bas.pop()
+        bas.append(q)
+    for q in p[::-1]:
+        while len(haut) >= 2 and croix(haut[-2], haut[-1], q) <= 0:
+            haut.pop()
+        haut.append(q)
+    return np.array(bas[:-1] + haut[:-1])

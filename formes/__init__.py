@@ -1,5 +1,5 @@
 """Générateur de formes abstraites : base + modules de déformation + emboîtements,
-avec export en visualisation 3D (HTML), STL et G-code."""
+avec export en visualisation 3D (HTML), STL et G-code (Klipper ou Marlin)."""
 
 from .geometrie import Forme, Assemblage
 from .bases import Base
@@ -8,7 +8,7 @@ from .deformations import (
 )
 from .emboitements import Gigogne, Empilement, Reseau
 from .generateur import Generateur
-from .gcode import ParametresImpression, generer_gcode, exporter_gcode
+from .gcode import VERSION, ParametresImpression, generer_gcode, exporter_gcode
 from .visualisation import figure_3d, figure_trajet, exporter_html
 
 __all__ = [
@@ -16,6 +16,6 @@ __all__ = [
     "Torsion", "Fuseau", "Ondulation", "Plis", "Bruit", "Courbure", "Pincement",
     "Gigogne", "Empilement", "Reseau",
     "Generateur",
-    "ParametresImpression", "generer_gcode", "exporter_gcode",
+    "VERSION", "ParametresImpression", "generer_gcode", "exporter_gcode",
     "figure_3d", "figure_trajet", "exporter_html",
 ]

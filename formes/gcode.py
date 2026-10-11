@@ -176,8 +176,10 @@ class _Ecrivain:
         self.temps += d / self.p.vitesse_deplacement
         self.pos = pt
 
-    def extruder(self, pts: np.ndarray, vitesse: float, type_: str, deplacer=True, vz_max=None):
-        """Extrude le long de ``pts``. ``vz_max`` : vitesse maximale de l'axe Z (mm/s)."""
+    def extruder(self, pts: np.ndarray, vitesse: float, type_: str, deplacer=True, vz_max=None,
+                 debit: float = 1.0):
+        """Extrude le long de ``pts``. ``vz_max`` : vitesse maximale de l'axe Z (mm/s) ;
+        ``debit`` : multiplicateur de débit (brins tirés dans le vide)."""
         pts = np.asarray(pts, float)
         if deplacer:
             self.deplacer(pts[0])
@@ -194,8 +196,8 @@ class _Ecrivain:
             if vz_max and dz > 1e-9:
                 v = min(v, vz_max * d / dz)
             f_mm = int(v * 60)                   # arrondi par défaut : jamais au-dessus de la limite
-            self.e += d * self.e_par_mm
-            self.filament += d * self.e_par_mm
+            self.e += d * self.e_par_mm * debit
+            self.filament += d * self.e_par_mm * debit
             self.temps += d / v
             f = f" F{f_mm}" if f_mm != f_prec else ""
             self(f"G1 X{pt[0]:.3f} Y{pt[1]:.3f} Z{pt[2]:.3f} E{self.e:.5f}{f}")
@@ -434,7 +436,7 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
                 for i, (type_, pts, pause) in enumerate(etage):
                     premier = k == debut_spirale and i == 0
                     w.extruder(pts, q.dentelle.vitesse(type_), "dentelle",
-                               deplacer=premier, vz_max=p.vitesse_z_max)
+                               deplacer=premier, vz_max=p.vitesse_z_max, debit=q.dentelle.debit(type_))
                     if pause > 0:
                         w(f"G4 P{int(round(pause * 1000))}")
                         w.temps += pause

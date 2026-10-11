@@ -124,6 +124,8 @@ que de **segments droits** entre des nœuds placés sur la surface de la forme.
 | `bord_bas`, `bord_haut` | bords pleins |
 | `vitesse_montee`, `vitesse_descente`, `vitesse_anneau` | lentes : 4, 6 et 8 mm/s par défaut |
 | `pause`, `affaissement` | pause au sommet (s) et surélévation des sommets (mm) |
+| `pression`, `pause_noeud` | enfoncement de l'anneau dans les sommets (mm) et pause à chaque soudure (s) |
+| `debit_fil` | débit des brins tirés dans le vide (0,85 par défaut) |
 
 - Diagonales conseillées entre 35° et 65° : l'application l'indique et alerte en dehors.
 - Ventilation forcée à 100 %. Une buse 5 à 10 °C plus froide aide les brins à figer.
@@ -132,8 +134,15 @@ que de **segments droits** entre des nœuds placés sur la surface de la forme.
 - Seul le **G-code** contient les jours ; la vue 3D montre les brins, le STL reste plein.
 - Une seule pièce : la dentelle est ignorée pour les assemblages (gigogne, couvercle…).
 - **Commencez par la pièce de calibration** (bouton de l'onglet Dentelle) : cylindre Ø 40 mm,
-  16 mailles, étages de 3 mm en bas à 8 mm en haut. Réglez ensuite `affaissement` (sommets trop
-  bas : augmentez) et `pause` (brins qui ne restent pas droits : augmentez).
+  16 mailles, étages de 3 mm en bas à 8 mm en haut.
+
+| symptôme | correction |
+|---|---|
+| anneaux qui glissent vers l'intérieur, étage suivant qui ne touche plus | `pression` ↑ (0,4–0,5), `pause_noeud` ↑ (0,3–0,5 s), `vitesse_anneau` ↓ |
+| brins ondulés, en zigzag | `debit_fil` ↓ (0,75), buse plus froide |
+| sommets qui retombent sous l'anneau | `affaissement` ↑, `pause` ↑ |
+| montées qui ne restent pas droites | `vitesse_montee` ↓, `pause` ↑ |
+| cheveux, fils | buse 5 à 10 °C plus froide, `pause` et `pause_noeud` ↓ |
 
 ### G-code
 

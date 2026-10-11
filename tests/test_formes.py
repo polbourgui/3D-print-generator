@@ -381,10 +381,26 @@ def test_dentelle_treillis(motif_, kw):
         sommets = [p[1] - [0, 0, d.affaissement + d.pression] for t, p, _ in e if t == "montee"]
         for s_ in sommets:
             assert np.min(np.linalg.norm(anneau - s_, axis=1)) < 1e-6
+        # aucune descente plus raide que le flanc de la buse (le brin frotterait dessus)
+        for t, pts, _ in e:
+            if t == "descente":
+                dz = pts[0, 2] - pts[1, 2]
+                assert np.degrees(np.arctan2(dz, np.linalg.norm(pts[0, :2] - pts[1, :2]))) <= d.angle_buse + 1e-6
         # la montée de raccord ne repasse pas sur un brin existant
         montees = [p for t, p, _ in e if t == "montee_lente"]
         assert np.linalg.norm(montees[-1][0, :2] - montees[0][0, :2]) > 0.8
         anneau_prec = anneau
+
+
+def test_dentelle_angle_buse_trop_haut():
+    # étages très hauts pour des mailles étroites : impossible de rester sous 40°, on le signale
+    f = Base(rayon=20, hauteur=40, couches=40, points=180).construire()
+    d = Dentelle(cellules=40, hauteur_maille=10)
+    r = d.resume(f, 0.2)
+    assert not r["buse_ok"] and r["descente_max"] > d.angle_buse
+    g = Generateur(Base(rayon=20, hauteur=40, couches=40, points=180), [], dentelle=d)
+    _, trajet = generer_gcode(g.generer(), ParametresImpression(vignettes=()))
+    assert any("touchera la buse" in a for a in trajet.avertissements)
 
 
 def test_dentelle_debit_fil():

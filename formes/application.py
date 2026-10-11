@@ -367,7 +367,7 @@ class Application:
         self._suspendu = True
         try:
             regles = {("Base", "profil"): "cercle", ("Base", "rayon"): 20.0, ("Base", "hauteur"): 40.0,
-                      ("Dentelle", "motif"): "losanges", ("Dentelle", "cellules"): 16,
+                      ("Dentelle", "motif"): "losanges", ("Dentelle", "cellules"): 12,
                       ("Dentelle", "hauteur_maille"): 3.0, ("Dentelle", "maille_haut"): 8.0,
                       ("Dentelle", "bord_bas"): 3.0, ("Dentelle", "bord_haut"): 3.0,
                       ("Dentelle", "actif"): True, ("Emboitement", "choix"): "Aucun"}
@@ -604,17 +604,17 @@ class Application:
         if self.dentelle.actif and len(a) == 1:
             r = self.dentelle.resume(a.pour_impression().pieces[0], p.hauteur_couche)
             lignes.append(f"🕸 dentelle : {r['etages']} étages, maille ≈ {r['largeur']:.1f} × "
-                          f"{r['hauteur']:.1f} mm (l × h), diagonales à {r['angle_min']:.0f}°"
-                          + (f"–{r['angle_max']:.0f}°" if r['angle_max'] - r['angle_min'] > 1 else "")
-                          + " · G-code uniquement")
+                          f"{r['hauteur']:.1f} mm (l × h), descentes à {r['descente_min']:.0f}°"
+                          + (f"–{r['descente_max']:.0f}°" if r['descente_max'] - r['descente_min'] > 1 else "")
+                          + f" (≤ {self.dentelle.angle_buse:.0f}° buse) · G-code uniquement")
             if r["etages"] == 0:
                 alertes.append("pas assez de hauteur entre les bords : la paroi restera pleine")
-            if r["angle_min"] < 30:
-                alertes.append(f"diagonales couchées ({r['angle_min']:.0f}°) : elles risquent de "
-                               "s'affaisser ; plus de cellules ou des étages plus hauts")
-            if r["angle_max"] > 70:
-                alertes.append(f"diagonales raides ({r['angle_max']:.0f}°) : la buse peut accrocher ; "
-                               "moins de cellules ou des étages plus bas")
+            if not r["buse_ok"]:
+                alertes.append(f"descentes à {r['descente_max']:.0f}° : le brin touchera la buse ; "
+                               "étages moins hauts ou moins de cellules")
+            if r["descente_min"] < 15:
+                alertes.append(f"descentes très couchées ({r['descente_min']:.0f}°) : risque "
+                               "d'affaissement ; plus de cellules ou des étages plus hauts")
         elif self.dentelle.actif:
             alertes.append("dentelle ignorée : elle ne s'imprime que sur une pièce unique")
         if isinstance(emb, Luminaire):

@@ -345,12 +345,13 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
         r = d.resume(q, h)
         if r["etages"] == 0:
             av.append("dentelle : pas assez de hauteur entre les bords, paroi pleine")
-        if r["angle_min"] < 30:
-            av.append(f"dentelle : diagonales couchées ({r['angle_min']:.0f}°), elles risquent de "
-                      "s'affaisser ; plus de cellules ou des étages plus hauts")
-        if r["angle_max"] > 70:
-            av.append(f"dentelle : diagonales raides ({r['angle_max']:.0f}°), la buse peut accrocher "
-                      "le brin voisin ; moins de cellules ou des étages plus bas")
+        if not r["buse_ok"]:
+            av.append(f"dentelle : descentes à {r['descente_max']:.0f}° (> angle buse "
+                      f"{d.angle_buse:.0f}°), le brin touchera la buse ; étages moins hauts "
+                      "ou moins de cellules")
+        if r["descente_min"] < 15:
+            av.append(f"dentelle : descentes très couchées ({r['descente_min']:.0f}°), "
+                      "risque d'affaissement")
     objets = klipper and p.exclude_object
     noms = [_nom_objet(q.nom, i) for i, q in enumerate(pieces)]
 

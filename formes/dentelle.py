@@ -77,6 +77,8 @@ class Dentelle(Module):
     pression: float = param(0.3, 0, 1, 0.05, "enfoncement de l'anneau dans les sommets (mm)")
     pause_noeud: float = param(0.2, 0, 2, 0.05, "pause à chaque soudure (sommet de l'anneau, pose d'une descente) (s)")
     debit_fil: float = param(0.85, 0.5, 1.2, 0.05, "débit des brins tirés dans le vide (× débit normal)")
+    angle_buse: float = param(40.0, 20, 70, 1, "angle maximal des descentes (°) : au-delà, le brin "
+                              "touche le flanc chaud de la buse")
 
     def __post_init__(self):
         if self.motif not in MOTIFS:          # anciens réglages (zigzag, alvéoles…)
@@ -119,24 +121,32 @@ class Dentelle(Module):
 
         # 2. étages du treillis
         decal = 0.0                                   # décalage des nœuds (en mailles)
-        demi = np.pi / n
         fall = np.array([0.0, 0.0, self.affaissement])
+        bas = np.array([0.0, 0.0, -self.pression])
+        f_motif = 0.5 if self.motif == "losanges" else 0.0
+        self.contraint = False                        # une descente dépasse-t-elle angle_buse ?
         for k in range(len(Z) - 1):
             za, zb = Z[k], Z[k + 1]
             noeuds = 2 * np.pi * (np.arange(n + 1) + decal) / n
-            sommets = noeuds + (demi if self.motif == "losanges" else 0.0)
             V = surf(noeuds, za)
-            T = surf(sommets, zb)
-            # l'anneau du dessous a été imprimé plus bas de « pression » (sauf sur le bord plein)
-            if k > 0:
+            if k > 0:                                 # l'anneau du dessous est enfoncé de « pression »
                 V[:, 2] -= self.pression
-            # le dernier retour se pose juste avant le nœud 0 (à ~2 largeurs de ligne),
-            # d'où une montée de raccord vers l'anneau qui ne touche aucun brin existant
+            # position du sommet dans la maille (fraction f) : la plus proche du motif telle
+            # que toutes les descentes restent sous angle_buse (sinon le brin, tendu entre la
+            # buse et le sommet, frotte sur le flanc chaud de la buse)
+            for f in np.linspace(f_motif, 0.0, 51):
+                T = surf(noeuds + 2 * np.pi * f / n, zb)
+                if self._angle_descentes(T[:n] + fall, V[1:]).max() <= self.angle_buse + 1e-9:
+                    break
+            else:
+                self.contraint = True
+            # raccord de fin d'étage : la dernière descente se pose juste après le nœud 0
+            # (plus couchée, jamais plus raide), et une montée parallèle à la première,
+            # à ~2 largeurs de ligne, rejoint l'anneau
             eps = 2 * largeur_ligne
-            frac_v = 1 - eps / max(np.linalg.norm(V[n, :2] - V[n - 1, :2]), 1e-9)
-            frac_t = 1 - eps / max(np.linalg.norm(T[n, :2] - T[n - 1, :2]), 1e-9)
-            Lp = V[n - 1] + frac_v * (V[n] - V[n - 1])
-            W = T[n - 1] + frac_t * (T[n] - T[n - 1])
+            frac = eps / max(np.linalg.norm(V[1, :2] - V[0, :2]), 1e-9)
+            Lp = V[0] + frac * (V[1] - V[0])
+            W = T[0] + frac * (T[1] - T[0])
             mvts = []
 
             def monter(depart, sommet):
@@ -153,14 +163,12 @@ class Dentelle(Module):
             # anneau : relie tous les sommets, enfoncé de « pression » et soudé à chacun
             # (pause) pour ne pas se rétracter comme un élastique ; il se termine sur le
             # sommet 0, premier nœud de l'étage suivant
-            bas = np.array([0.0, 0.0, -self.pression])
             prec = W + fall
-            for cible in [W, *T[:n], W, T[0]]:
+            for cible in [W, *T[1:n], T[0], W, T[0]]:
                 mvts.append(("anneau", np.array([prec, cible + bas]), self.pause_noeud))
                 prec = cible + bas
             etages.append(mvts)
-            if self.motif == "losanges":
-                decal += 0.5
+            decal += f
 
         # 3. bord du haut : spirale sur le polygone du dernier anneau (cordes, comme lui)
         abaisse = self.pression if len(Z) > 1 else 0.0
@@ -195,14 +203,21 @@ class Dentelle(Module):
     def debit(self, type_: str) -> float:
         return self.debit_fil if type_ in EN_FIL else 1.0
 
+    @staticmethod
+    def _angle_descentes(depart: np.ndarray, arrivee: np.ndarray) -> np.ndarray:
+        """Angle (°, depuis l'horizontale) de chaque descente départ → arrivée."""
+        dz = depart[:, 2] - arrivee[:, 2]
+        dxy = np.linalg.norm(depart[:, :2] - arrivee[:, :2], axis=1)
+        return np.degrees(np.arctan2(dz, dxy))
+
     def resume(self, forme: Forme, h: float) -> dict:
-        """Dimensions d'une maille et angle des diagonales (pour l'interface)."""
+        """Dimensions d'une maille et angles du treillis (pour l'interface et les alertes)."""
         c = forme.pts[len(forme.pts) // 2, :, :2]
         perimetre = float(np.linalg.norm(np.diff(c, axis=0, append=c[:1]), axis=1).sum())
-        largeur = perimetre / int(self.cellules)
-        hauteur = max(self.hauteur_maille, self.maille_haut or 0)
-        portee = largeur / 2 if self.motif == "losanges" else largeur
-        angles = [np.degrees(np.arctan2(m, portee)) for m in (self.hauteur_maille, hauteur)]
-        etages = max(len(self._etages_z(float(forme.z[0]) + self.bord_bas, float(forme.z[-1]))) - 1, 0)
-        return {"largeur": largeur, "hauteur": self.hauteur_maille, "etages": etages,
-                "angle_min": float(min(angles)), "angle_max": float(max(angles))}
+        etages = [e for e in self.trajet(forme, h) if any(t == "descente" for t, _, _ in e)]
+        desc = [p for e in etages for t, p, _ in e if t == "descente"]
+        angles = self._angle_descentes(np.array([p[0] for p in desc]), np.array([p[1] for p in desc])) \
+            if desc else np.zeros(1)
+        return {"largeur": perimetre / int(self.cellules), "hauteur": self.hauteur_maille,
+                "etages": len(etages), "descente_min": float(angles.min()),
+                "descente_max": float(angles.max()), "buse_ok": not self.contraint}

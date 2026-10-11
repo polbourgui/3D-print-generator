@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from formes import (Assemblage, Base, Luminaire, Bec, Bruit, Couvercle, Courbure, Ecailles, Empilement, Facettes,
+from formes import (Assemblage, Base, Dentelle, Luminaire, Bec, Bruit, Couvercle, Courbure, Ecailles, Empilement, Facettes,
                     Fuseau, Generateur, Gigogne, Losanges, Nervures, Ondulation, ParametresImpression,
                     Pincement, Plis, Reseau, Torsion, generer_gcode)
 from formes.gcode import _porte_a_faux
@@ -269,6 +269,11 @@ def test_application(tmp_path):
     w[("Luminaire", "culot")].value = "E14"
     w[("Luminaire", "montage")].value = "a poser"
     assert "douille E14" in app.infos.value
+    w[("Emboitement", "choix")].value = "Aucun"
+    w[("Dentelle", "actif")].value = True
+    assert "dentelle" in app.infos.value
+    app.calibration_dentelle()
+    assert app.base.rayon == 20 and app.dentelle.maille_haut == 12
     w[("Emboitement", "choix")].value = "Couvercle"
     app.exporter_tout()
     assert len(list(tmp_path.glob(f"{app.nom.value}.*"))) == 3
@@ -328,3 +333,71 @@ def test_luminaire_a_poser_avec_manchon():
 def test_luminaire_trop_etroit():
     with pytest.raises(ValueError, match="trop étroit"):
         Generateur(Base(rayon=20), [], Luminaire(culot="E27")).generer()
+
+
+@pytest.mark.parametrize("motif_", ["losanges", "zigzag", "alveoles"])
+def test_dentelle_motifs_symetriques(motif_):
+    from formes.dentelle import motif
+    x = np.linspace(0, 30, 2001)
+    np.testing.assert_allclose(motif(motif_, x + np.pi), 1 - motif(motif_, x), atol=1e-12)
+    assert motif(motif_, np.array([0.0]))[0] == pytest.approx(0)
+    assert motif(motif_, np.array([np.pi]))[0] == pytest.approx(1)
+
+
+@pytest.mark.parametrize("kw", [{}, {"motif": "alveoles", "cellules": 7},
+                                {"motif": "zigzag", "hauteur_maille": 4, "maille_haut": 14}])
+def test_dentelle_trajet(kw):
+    f = Fuseau(echelle_haut=0.7, ventre=0.2).appliquer(
+        Base(rayon=30, hauteur=60, couches=60, points=240).construire())
+    h = 0.2
+    pts, tours, M = Dentelle(**kw).trajet(f, h, 0.8)
+    z = pts[:, 2]
+    assert z.min() == pytest.approx(0.8) and 60 - 3 * h <= z.max() <= 60
+    # chaque tour au moins h au-dessus du précédent (jamais dans la matière), égalité aux nœuds
+    ecart = z[M:] - z[:-M]
+    assert ecart.min() == pytest.approx(h, abs=1e-9)
+    assert ecart.max() > 2                          # il y a bien des jours
+    # le trajet reste sur la surface de la forme
+    for zz in (10.0, 30.0, 50.0):
+        i = np.argmin(np.abs(z - zz))
+        r_forme = np.hypot(*f.contour_a(z[i]).T)
+        assert r_forme.min() - 0.05 <= np.hypot(*pts[i, :2]) <= r_forme.max() + 0.05   # cordes
+
+
+def test_dentelle_gcode_vitesse_z():
+    import re
+    g = Generateur(Base(rayon=25, hauteur=30, couches=40, points=180), [], dentelle=Dentelle())
+    texte, trajet = generer_gcode(g.generer(), ParametresImpression(vignettes=(), vitesse_z_max=6))
+    assert trajet.stats["mode"] == "dentelle"
+    assert "M106 S255" in texte
+    assert re.search(r"; max_z_height = 30\.000", texte)
+    pos, F, vz = None, None, 0.0
+    for l in texte.splitlines():
+        if l.startswith(("G1 X", "G0 X")):
+            v = {k: float(x) for k, x in re.findall(r"([XYZF])(-?[\d.]+)", l)}
+            p = np.array([v["X"], v["Y"], v["Z"]])
+            if l.startswith("G1"):
+                F = v.get("F", F)
+                d = np.linalg.norm(p - pos)
+                if d > 0:
+                    vz = max(vz, F / 60 * abs(p[2] - pos[2]) / d)
+            pos = p
+    assert 5 < vz <= 6 * 1.01        # coordonnées arrondies au µm dans le G-code
+
+
+def test_dentelle_plusieurs_pieces_ignoree():
+    g = Generateur(petite_base(), [], Gigogne(nombre=2), Dentelle())
+    _, trajet = generer_gcode(g.generer(), ParametresImpression(vignettes=()))
+    assert trajet.stats["mode"] == "couches"
+    assert any("dentelle ignorée" in a for a in trajet.avertissements)
+
+
+def test_dentelle_abat_jour():
+    g = Generateur(Base(rayon=45, hauteur=50, couches=50, points=180), [Fuseau(echelle_haut=0.6, ventre=0)],
+                   Luminaire(culot="E14"), Dentelle(cellules=16))
+    a = g.generer()
+    from formes.visualisation import trajet_apercu
+    brins = trajet_apercu(a.pieces[0])
+    assert brins[:, 2].min() >= -1e-6 and brins[:, 2].max() <= 50 + 1e-6
+    texte, trajet = generer_gcode(a, ParametresImpression(vignettes=(), couches_fond=6))
+    assert trajet.stats["mode"] == "dentelle" and not trajet.avertissements

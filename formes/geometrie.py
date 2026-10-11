@@ -69,10 +69,12 @@ class Forme:
     # centrés sur la couche du bas / du haut ; le manchon part du fond vers l'intérieur
     douille_bas: tuple | None = None
     douille_haut: tuple | None = None
+    dentelle: object | None = None   # module Dentelle : paroi en filet non planaire (G-code)
 
     def copie(self, **kw) -> "Forme":
         d = dict(pts=self.pts.copy(), nom=self.nom, fond=self.fond, ferme_haut=self.ferme_haut,
-                 retournee=self.retournee, douille_bas=self.douille_bas, douille_haut=self.douille_haut)
+                 retournee=self.retournee, douille_bas=self.douille_bas, douille_haut=self.douille_haut,
+                 dentelle=self.dentelle)
         d.update(kw)
         return Forme(**d)
 

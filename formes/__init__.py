@@ -8,6 +8,7 @@ from .deformations import (
     Nervures, Losanges, Ecailles, Facettes, Bec,
 )
 from .emboitements import Gigogne, Empilement, Reseau, Couvercle, Luminaire
+from .dentelle import Dentelle
 from .generateur import Generateur
 from .gcode import VERSION, ParametresImpression, generer_gcode, exporter_gcode
 from .visualisation import figure_3d, figure_trajet, exporter_html
@@ -17,6 +18,7 @@ __all__ = [
     "Torsion", "Fuseau", "Ondulation", "Plis", "Bruit", "Courbure", "Pincement",
     "Nervures", "Losanges", "Ecailles", "Facettes", "Bec",
     "Gigogne", "Empilement", "Reseau", "Couvercle", "Luminaire",
+    "Dentelle",
     "Generateur",
     "VERSION", "ParametresImpression", "generer_gcode", "exporter_gcode",
     "figure_3d", "figure_trajet", "exporter_html",

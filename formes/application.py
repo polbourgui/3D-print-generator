@@ -29,6 +29,7 @@ from pathlib import Path
 
 from .bases import PROFILS, Base
 from .deformations import TOUTES, Fuseau, Torsion
+from .dentelle import Dentelle
 from .emboitements import TOUS, Luminaire
 from .gcode import ParametresImpression, _porte_a_faux, exporter_gcode
 from .generateur import Generateur
@@ -41,15 +42,15 @@ from .visualisation import figure_3d, figure_trajet, exporter_html
 
 IMPRIMANTES = {
     "Personnalisée": None,
-    "Voron 2.4 – 350": dict(plateau=(350.0, 350.0), hauteur_max=340.0, firmware="klipper"),
-    "Voron 2.4 – 300": dict(plateau=(300.0, 300.0), hauteur_max=290.0, firmware="klipper"),
-    "Voron Trident – 300": dict(plateau=(300.0, 300.0), hauteur_max=250.0, firmware="klipper"),
-    "Voron 0.2 – 120": dict(plateau=(120.0, 120.0), hauteur_max=120.0, firmware="klipper"),
-    "Creality K1 / K1C": dict(plateau=(220.0, 220.0), hauteur_max=250.0, firmware="klipper"),
-    "Sovol SV06 Plus / SV07 (Klipper)": dict(plateau=(300.0, 300.0), hauteur_max=340.0, firmware="klipper"),
-    "Ender 3 / Ender 3 V2 (Marlin)": dict(plateau=(220.0, 220.0), hauteur_max=250.0, firmware="marlin"),
-    "Ender 3 + Klipper": dict(plateau=(220.0, 220.0), hauteur_max=250.0, firmware="klipper"),
-    "Prusa MK3S / MK4 (Marlin)": dict(plateau=(250.0, 210.0), hauteur_max=210.0, firmware="marlin"),
+    "Voron 2.4 – 350": dict(plateau=(350.0, 350.0), hauteur_max=340.0, firmware="klipper", vitesse_z_max=15.0),
+    "Voron 2.4 – 300": dict(plateau=(300.0, 300.0), hauteur_max=290.0, firmware="klipper", vitesse_z_max=15.0),
+    "Voron Trident – 300": dict(plateau=(300.0, 300.0), hauteur_max=250.0, firmware="klipper", vitesse_z_max=15.0),
+    "Voron 0.2 – 120": dict(plateau=(120.0, 120.0), hauteur_max=120.0, firmware="klipper", vitesse_z_max=15.0),
+    "Creality K1 / K1C": dict(plateau=(220.0, 220.0), hauteur_max=250.0, firmware="klipper", vitesse_z_max=10.0),
+    "Sovol SV06 Plus / SV07 (Klipper)": dict(plateau=(300.0, 300.0), hauteur_max=340.0, firmware="klipper", vitesse_z_max=10.0),
+    "Ender 3 / Ender 3 V2 (Marlin)": dict(plateau=(220.0, 220.0), hauteur_max=250.0, firmware="marlin", vitesse_z_max=5.0),
+    "Ender 3 + Klipper": dict(plateau=(220.0, 220.0), hauteur_max=250.0, firmware="klipper", vitesse_z_max=5.0),
+    "Prusa MK3S / MK4 (Marlin)": dict(plateau=(250.0, 210.0), hauteur_max=210.0, firmware="marlin", vitesse_z_max=12.0),
 }
 
 FILAMENTS = {
@@ -105,7 +106,7 @@ DESCRIPTIONS = {
     "Luminaire": "abat-jour, fond percé pour douille E27 / E14 / GU10",
 }
 
-LIBELLES = {"a poser": "à poser"}
+LIBELLES = {"a poser": "à poser", "alveoles": "alvéoles"}
 
 APERCU = {"Rapide": (60, 144), "Normal": (120, 240), "Fin": (None, None)}
 
@@ -165,6 +166,7 @@ class Application:
                 d.actif, d.angle = True, 120.0
         self.emboitements = {cls.__name__: cls() for cls in TOUS}
         self.emboitement_choisi = "Aucun"
+        self.dentelle = Dentelle(actif=False)
         self.impression = ParametresImpression()
         self.widgets: dict[tuple[str, str], W.Widget] = {}
 
@@ -174,11 +176,12 @@ class Application:
         self.journal = W.Output(layout=W.Layout(width=LARGEUR, max_height="260px", overflow="auto"))
 
         onglets = W.Tab(children=[self._onglet_forme(), self._onglet_deformations(),
-                                  self._onglet_emboitement(), self._onglet_impression(),
-                                  self._onglet_export()])
-        for i, t in enumerate(["Forme", "Déformations", "Emboîtement", "Impression", "Export"]):
+                                  self._onglet_emboitement(), self._onglet_dentelle(),
+                                  self._onglet_impression(), self._onglet_export()])
+        self.onglets = onglets
+        for i, t in enumerate(["Forme", "Déformations", "Emboîtement", "Dentelle", "Impression", "Export"]):
             onglets.set_title(i, t)
-        onglets.layout = W.Layout(width="500px")
+        onglets.layout = W.Layout(width="590px")
 
         self.qualite = W.ToggleButtons(options=list(APERCU), value="Rapide",
                                        description="Aperçu", style={"button_width": "70px"},
@@ -191,7 +194,7 @@ class Application:
 
         self.vue = W.VBox([
             W.HTML("<h2 style='margin:4px 0'>Générateur de formes</h2>"),
-            W.HBox([W.VBox([barre, onglets], layout=W.Layout(flex="0 0 510px", width="510px")),
+            W.HBox([W.VBox([barre, onglets], layout=W.Layout(flex="0 0 600px", width="600px")),
                     W.VBox([self.infos, self.sortie],
                            layout=W.Layout(flex="1 1 0%", min_width="0", overflow="hidden"))],
                    layout=W.Layout(width="100%", align_items="flex-start")),
@@ -331,6 +334,54 @@ class Application:
         assert set(options[1:]) == set(panneaux)
         return W.VBox([radio, *panneaux.values()])
 
+    def _onglet_dentelle(self):
+        W = self.W
+        d = self.dentelle
+        case = W.Checkbox(value=d.actif, description="paroi en dentelle (impression non planaire)",
+                          indent=False)
+        self.widgets[("Dentelle", "actif")] = case
+        corps = W.VBox([self._lier(d, n, _curseur(n, v, m), "Dentelle") for n, v, m in d.parametres()],
+                       layout=W.Layout(display="" if d.actif else "none"))
+
+        def basculer(ch):
+            d.actif = ch["new"]
+            corps.layout.display = "" if ch["new"] else "none"
+            if not self._suspendu:
+                self.rafraichir()
+
+        case.observe(basculer, names="value")
+        calibration = W.Button(description="Pièce de calibration", icon="flask",
+                               tooltip="petit cylindre, maille de 4 à 12 mm du bas vers le haut",
+                               layout=W.Layout(width="220px"))
+        calibration.on_click(lambda _: self._executer(self.calibration_dentelle))
+        aide = W.HTML(
+            "<small>La buse suit une vague en Z : chaque tour se pose sur les crêtes du précédent "
+            "et passe dans le vide entre deux nœuds. Seul le <b>G-code</b> contient les jours "
+            "(le STL reste plein). Ventilation forcée à 100 %, vitesse Z limitée (onglet Impression). "
+            "Commencez par la <b>pièce de calibration</b> pour trouver la maille qui tient sur "
+            "votre machine.</small>")
+        return W.VBox([case, corps, calibration, aide])
+
+    def calibration_dentelle(self):
+        """Petit cylindre de test : maille de 4 mm (bas) à 12 mm (haut)."""
+        self._suspendu = True
+        try:
+            regles = {("Base", "profil"): "cercle", ("Base", "rayon"): 20.0, ("Base", "hauteur"): 50.0,
+                      ("Dentelle", "motif"): "losanges", ("Dentelle", "cellules"): 10,
+                      ("Dentelle", "hauteur_maille"): 4.0, ("Dentelle", "maille_haut"): 12.0,
+                      ("Dentelle", "bord_bas"): 3.0, ("Dentelle", "bord_haut"): 3.0,
+                      ("Dentelle", "actif"): True, ("Emboitement", "choix"): "Aucun"}
+            for d in self.deformations:
+                regles[(d.nom, "actif")] = False
+            for cle, v in regles.items():
+                self.widgets[cle].value = v
+            self.nom.value = f"calibration-dentelle-{datetime.now():%H%M%S}"
+        finally:
+            self._suspendu = False
+        self.rafraichir()
+        print("🧪 pièce de calibration chargée : imprimez-la, puis gardez la maille la plus haute "
+              "dont les brins sont restés tendus")
+
     def _onglet_impression(self):
         W = self.W
         p = self.impression
@@ -440,6 +491,8 @@ class Application:
             bascule("firmware", ["klipper", "marlin"], "firmware", apres=self._maj_visibilite_klipper),
             plateau_x, plateau_y,
             curseur("hauteur_max", 50, 600, 5, "hauteur max (mm)"),
+            curseur("vitesse_z_max", 2, 40, 1, "vitesse Z max (mm/s)",
+                    "limite de l'axe Z, utilisée par la dentelle (max_z_velocity de Klipper)"),
             buse,
             self._titre("Filament"),
             filament,
@@ -515,7 +568,7 @@ class Application:
             base = replace(base, couches=min(base.couches, couches),
                            points=max(24, min(base.points, points)))
         emb = self.emboitements.get(self.emboitement_choisi)
-        return Generateur(base, list(self.deformations), emb)
+        return Generateur(base, list(self.deformations), emb, self.dentelle)
 
     def rafraichir(self):
         from IPython.display import display
@@ -548,6 +601,17 @@ class Application:
             alertes.append(f"surplomb de {pire:.0f}° (> {p.angle_max_porte_a_faux:.0f}°) : "
                            "réduisez courbure, bec ou galbe")
         emb = self.emboitements.get(self.emboitement_choisi)
+        if self.dentelle.actif and len(a) == 1:
+            r = self.dentelle.resume(a.pour_impression().pieces[0], p.hauteur_couche)
+            lignes.append(f"🕸 dentelle : maille ≈ {r['largeur']:.1f} × {r['hauteur']:.1f} mm "
+                          f"(l × h), brins à {r['pente']:.0f}° · G-code uniquement")
+            if r["a"] <= 0:
+                alertes.append("maille trop petite : la paroi restera pleine")
+            if r["pente"] > 60:
+                alertes.append(f"brins très pentus ({r['pente']:.0f}°) : moins de cellules "
+                               "ou mailles moins hautes")
+        elif self.dentelle.actif:
+            alertes.append("dentelle ignorée : elle ne s'imprime que sur une pièce unique")
         if isinstance(emb, Luminaire):
             ep = p.couches_fond * p.hauteur_couche
             lignes.append(f"💡 douille {emb.culot} ({emb.montage}) : perçage Ø {emb.diametre:.1f} mm · "
@@ -581,6 +645,8 @@ class Application:
 
     def exporter_stl(self):
         print("✔ STL    :", self.generateur().generer().exporter_stl(self._chemin(".stl")))
+        if self.dentelle.actif:
+            print("   (STL plein : la dentelle n'existe que dans le G-code)")
 
     def exporter_gcode(self):
         chemin = self._chemin(".gcode")
@@ -661,6 +727,7 @@ class Application:
             "deformations": [{"nom": d.nom, **params(d)} for d in self.deformations],
             "emboitement": self.emboitement_choisi,
             "emboitements": {n: params(e) for n, e in self.emboitements.items()},
+            "dentelle": params(self.dentelle),
             "impression": asdict(self.impression),
         }
 
@@ -696,6 +763,9 @@ class Application:
             for n, valeurs in r["emboitements"].items():
                 regler(n, valeurs)
             self.widgets[("Emboitement", "choix")].value = r["emboitement"]
+            if "dentelle" in r:
+                regler("Dentelle", r["dentelle"])
+                self.widgets[("Dentelle", "actif")].value = r["dentelle"]["actif"]
             imp = r["impression"]
             for n, v in imp.items():
                 if isinstance(v, list):

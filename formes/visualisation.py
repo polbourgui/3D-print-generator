@@ -41,6 +41,21 @@ def figure_3d(assemblage: Assemblage | Forme, titre: str = "Forme", aretes: bool
         assemblage = Assemblage([assemblage])
     fig = go.Figure()
     for i, p in enumerate(assemblage):
+        if p.dentelle is not None:
+            brins = trajet_apercu(p)
+            fig.add_trace(go.Scatter3d(
+                x=brins[:, 0], y=brins[:, 1], z=brins[:, 2], mode="lines", name=f"{p.nom} (dentelle)",
+                line=dict(color=PALETTE[i % len(PALETTE)], width=3), showlegend=len(assemblage) > 1,
+                hoverinfo="skip"))
+            # fond / couronne de douille, pleins, sous les brins
+            for garde, cap in [(p.fond, p.copie(pts=p.pts[:2], ferme_haut=False, dentelle=None)),
+                               (p.ferme_haut, p.copie(pts=p.pts[-2:], fond=False, dentelle=None))]:
+                if garde:
+                    v, f = cap.maillage()
+                    fig.add_trace(go.Mesh3d(x=v[:, 0], y=v[:, 1], z=v[:, 2], i=f[:, 0], j=f[:, 1], k=f[:, 2],
+                                            color=PALETTE[i % len(PALETTE)], showlegend=False,
+                                            hoverinfo="skip"))
+            continue
         v, f = p.maillage()
         fig.add_trace(go.Mesh3d(
             x=v[:, 0], y=v[:, 1], z=v[:, 2], i=f[:, 0], j=f[:, 1], k=f[:, 2],
@@ -57,6 +72,20 @@ def figure_3d(assemblage: Assemblage | Forme, titre: str = "Forme", aretes: bool
                                            line=dict(color="black", width=1), showlegend=False,
                                            hoverinfo="skip"))
     return _scene(fig, titre)
+
+
+def trajet_apercu(p: Forme, h: float = 0.2, couches_fond: int = 4, max_points: int = 60_000):
+    """Brins de la dentelle tels qu'imprimés, ramenés dans l'orientation de la vue."""
+    q = p.retourner() if p.retournee else p
+    pts, _, _ = q.dentelle.trajet(q, h, q.z[0] + couches_fond * h)
+    if p.retournee:                      # retourner() est son propre inverse : même boîte
+        mn, mx = q.boite()
+        pts = pts.copy()
+        pts[:, 1] = mn[1] + mx[1] - pts[:, 1]
+        pts[:, 2] = mn[2] + mx[2] - pts[:, 2]
+    if len(pts) > max_points:
+        pts = pts[:: int(np.ceil(len(pts) / max_points))]
+    return pts
 
 
 def figure_trajet(trajet, titre: str = "Trajet G-code", deplacements: bool = False,

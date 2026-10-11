@@ -53,6 +53,7 @@ Tout se règle à la souris, sans saisie :
 | **Forme** | profil de base (menu déroulant) et dimensions ; seuls les réglages utiles au profil sont affichés |
 | **Déformations** | une case pour activer chaque module, ses curseurs, ↑ / ↓ pour l'ordre d'application |
 | **Emboîtement** | boutons radio : aucun, gigogne, empilement, réseau, couvercle, luminaire |
+| **Dentelle** | paroi ajourée en filet, imprimée en non planaire : motif (losanges, zigzag, alvéoles), mailles, bords pleins, pièce de calibration |
 | **Impression** | préréglages d'imprimante (Voron, Creality K1, Ender 3, Prusa…) et de filament (PLA, PETG, ABS, ASA, TPU), firmware, mode spirale / couches, vitesses, options Klipper (macros, purge KAMP, maillage adaptatif, exclude object) |
 | **Export** | HTML, STL et G-code en un clic, trajet G-code, ouverture du dossier `sorties/`, sauvegarde et chargement des réglages |
 
@@ -101,6 +102,39 @@ Ces cotes sont les plus courantes : mesurez votre douille au pied à coulisse et
 - **manchon** (optionnel) : tube de centrage autour du perçage ; impose le mode couches.
 - L'épaisseur de la couronne vaut `couches_fond × hauteur_couche` : visez au moins 1,2 mm.
 - Ampoules **LED uniquement** : le PLA ramollit vers 60 °C (PETG ≈ 80 °C).
+
+### Dentelle (impression non planaire)
+
+Au lieu de tours plats, la buse suit une **vague en Z**. Chaque tour reprend la vague du
+précédent décalée d'une demi-période : ses creux se posent sur les crêtes du tour d'avant
+(nœuds soudés), et entre deux nœuds le brin passe dans le vide. La paroi devient un filet,
+imprimé d'un seul brin continu, sur n'importe quelle forme (y compris un abat-jour).
+
+```
+z(u) = base(u) + 2·a(u)·f(n·θ + π·u)        u : tours, n : mailles par tour
+base(u) = base(u−1) + h + 2·a(u−1)          f(x+π) = 1 − f(x)
+⇒ z(u) − z(u−1) ≥ h, avec égalité aux nœuds
+```
+
+Chaque tour est donc toujours au moins une hauteur de couche au-dessus du précédent : la buse
+ne plonge jamais dans la matière déjà posée.
+
+| réglage | effet |
+|---|---|
+| `motif` | `losanges` (sinus), `zigzag` (angles vifs), `alveoles` (nœuds allongés) |
+| `cellules` | mailles sur le tour (largeur = périmètre / cellules) |
+| `hauteur_maille`, `maille_haut` | hauteur d'une maille en bas et en haut (maille progressive) |
+| `bord_bas`, `bord_haut` | bords pleins (mode vase classique) |
+| `vitesse` | vitesse des brins (lente : ils sont tirés dans le vide) |
+
+- Ventilation forcée à 100 % pendant la dentelle.
+- La vitesse de l'axe Z est limitée par `vitesse_z_max` (onglet Impression, préréglée selon
+  l'imprimante : 15 mm/s Voron, 5 mm/s Ender 3…). Gardez-la sous votre `max_z_velocity`.
+- Mailles plutôt plus larges que hautes : l'application signale les brins trop pentus (> 60°).
+- Seul le **G-code** contient les jours ; la vue 3D montre les brins, le STL reste plein.
+- Une seule pièce : la dentelle est ignorée pour les assemblages (gigogne, couvercle…).
+- **Commencez par la pièce de calibration** (bouton de l'onglet Dentelle) : cylindre Ø 40 mm
+  dont la maille passe de 4 à 12 mm ; gardez la plus grande maille dont les brins restent tendus.
 
 ### G-code
 

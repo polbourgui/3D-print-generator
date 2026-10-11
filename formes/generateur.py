@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .bases import Base
+from .dentelle import Dentelle
 from .deformations import Deformation
 from .emboitements import Emboitement
 from .geometrie import Assemblage, Forme
@@ -15,6 +16,7 @@ class Generateur:
     base: Base = field(default_factory=Base)
     deformations: list[Deformation] = field(default_factory=list)
     emboitement: Emboitement | None = None
+    dentelle: Dentelle | None = None
 
     def __post_init__(self):
         # tolère l'oubli des parenthèses : ``Couvercle`` au lieu de ``Couvercle()``
@@ -23,6 +25,7 @@ class Generateur:
         self.base = instance(self.base)
         self.deformations = [instance(d) for d in self.deformations]
         self.emboitement = instance(self.emboitement)
+        self.dentelle = instance(self.dentelle)
 
     # -- activation des modules --------------------------------------------
     def module(self, nom: str):
@@ -51,12 +54,18 @@ class Generateur:
     def generer(self) -> Assemblage:
         f = self.forme()
         if self.emboitement is not None and self.emboitement.actif:
-            return self.emboitement.appliquer(f)
-        return Assemblage([f])
+            a = self.emboitement.appliquer(f)
+        else:
+            a = Assemblage([f])
+        if self.dentelle is not None and self.dentelle.actif:
+            a = Assemblage([p.copie(dentelle=self.dentelle) for p in a])
+        return a
 
     def __repr__(self):
         lignes = [f"Base({self.base.profil}, r={self.base.rayon:g}, h={self.base.hauteur:g})"]
         lignes += [f"  {d!r}" for d in self.deformations]
         if self.emboitement is not None:
             lignes.append(f"  {self.emboitement!r}")
+        if self.dentelle is not None:
+            lignes.append(f"  {self.dentelle!r}")
         return "\n".join(lignes)

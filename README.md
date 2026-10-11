@@ -126,15 +126,22 @@ que de **segments droits** entre des nœuds placés sur la surface de la forme.
 | `pause`, `affaissement` | pause au sommet (s) et surélévation des sommets (mm) |
 | `pression`, `pause_noeud` | enfoncement de l'anneau dans les sommets (mm) et pause à chaque soudure (s) |
 | `debit_fil` | débit des brins tirés dans le vide (0,85 par défaut) |
+| `angle_buse` | angle maximal des descentes (40° par défaut), voir ci-dessous |
 
-- Diagonales conseillées entre 35° et 65° : l'application l'indique et alerte en dehors.
+- **Dégagement de la buse** : pendant une descente, le brin reste tendu entre la buse et le
+  sommet d'où elle vient ; il remonte en arrière à l'angle de la descente. Si cet angle dépasse
+  celui du flanc du cône de la buse, le brin frotte sur le métal chaud. Les descentes ne
+  dépassent donc jamais `angle_buse` : le sommet se décale dans la maille (montée plus raide,
+  sans risque : le brin pend sous la buse). Mesurez le flanc de votre buse (≈ 45° sur une buse
+  classique) et gardez une marge. Si l'étage est trop haut pour la largeur de maille,
+  l'application le signale : baissez la hauteur d'étage ou le nombre de cellules.
 - Ventilation forcée à 100 %. Une buse 5 à 10 °C plus froide aide les brins à figer.
 - La vitesse de l'axe Z reste sous `vitesse_z_max` (onglet Impression, préréglée selon
   l'imprimante).
 - Seul le **G-code** contient les jours ; la vue 3D montre les brins, le STL reste plein.
 - Une seule pièce : la dentelle est ignorée pour les assemblages (gigogne, couvercle…).
 - **Commencez par la pièce de calibration** (bouton de l'onglet Dentelle) : cylindre Ø 40 mm,
-  16 mailles, étages de 3 mm en bas à 8 mm en haut.
+  12 mailles, étages de 3 mm en bas à 8 mm en haut.
 
 | symptôme | correction |
 |---|---|
@@ -143,6 +150,7 @@ que de **segments droits** entre des nœuds placés sur la surface de la forme.
 | sommets qui retombent sous l'anneau | `affaissement` ↑, `pause` ↑ |
 | montées qui ne restent pas droites | `vitesse_montee` ↓, `pause` ↑ |
 | cheveux, fils | buse 5 à 10 °C plus froide, `pause` et `pause_noeud` ↓ |
+| brin qui touche le flanc chaud de la buse pendant les descentes | `angle_buse` ↓ (35°) |
 
 ### G-code
 

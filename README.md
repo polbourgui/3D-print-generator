@@ -103,38 +103,37 @@ Ces cotes sont les plus courantes : mesurez votre douille au pied à coulisse et
 - L'épaisseur de la couronne vaut `couches_fond × hauteur_couche` : visez au moins 1,2 mm.
 - Ampoules **LED uniquement** : le PLA ramollit vers 60 °C (PETG ≈ 80 °C).
 
-### Dentelle (impression non planaire)
+### Dentelle (impression en fil, non planaire)
 
-Au lieu de tours plats, la buse suit une **vague en Z**. Chaque tour reprend la vague du
-précédent décalée d'une demi-période : ses creux se posent sur les crêtes du tour d'avant
-(nœuds soudés), et entre deux nœuds le brin passe dans le vide. La paroi devient un filet,
-imprimé d'un seul brin continu, sur n'importe quelle forme (y compris un abat-jour).
+La paroi devient un **treillis** imprimé dans le vide, étage par étage, selon le principe de
+WirePrint et du « Wire Printing » de Cura :
 
-```
-z(u) = base(u) + 2·a(u)·f(n·θ + π·u)        u : tours, n : mailles par tour
-base(u) = base(u−1) + h + 2·a(u−1)          f(x+π) = 1 − f(x)
-⇒ z(u) − z(u−1) ≥ h, avec égalité aux nœuds
-```
+1. **montée** lente d'un nœud de l'anneau vers un sommet, au niveau de l'étage suivant, avec
+   une légère surélévation (`affaissement`) et une **pause** pour que le brin fige ;
+2. **descente** en diagonale vers le nœud suivant de l'anneau du dessous ;
+3. **anneau** horizontal reliant tous les sommets : c'est l'appui de l'étage suivant.
 
-Chaque tour est donc toujours au moins une hauteur de couche au-dessus du précédent : la buse
-ne plonge jamais dans la matière déjà posée.
+Un brin tiré dans le vide se tend en ligne droite entre ses deux appuis : le trajet n'est fait
+que de **segments droits** entre des nœuds placés sur la surface de la forme.
 
 | réglage | effet |
 |---|---|
-| `motif` | `losanges` (sinus), `zigzag` (angles vifs), `alveoles` (nœuds allongés) |
+| `motif` | `losanges` (montées et descentes en diagonale, nœuds décalés d'une demi-maille à chaque étage) ou `triangles` (montées verticales, le plus rigide) |
 | `cellules` | mailles sur le tour (largeur = périmètre / cellules) |
-| `hauteur_maille`, `maille_haut` | hauteur d'une maille en bas et en haut (maille progressive) |
-| `bord_bas`, `bord_haut` | bords pleins (mode vase classique) |
-| `vitesse` | vitesse des brins (lente : ils sont tirés dans le vide) |
+| `hauteur_maille`, `maille_haut` | hauteur d'un étage en bas et en haut |
+| `bord_bas`, `bord_haut` | bords pleins |
+| `vitesse_montee`, `vitesse_descente`, `vitesse_anneau` | lentes : 4, 6 et 8 mm/s par défaut |
+| `pause`, `affaissement` | pause au sommet (s) et surélévation des sommets (mm) |
 
-- Ventilation forcée à 100 % pendant la dentelle.
-- La vitesse de l'axe Z est limitée par `vitesse_z_max` (onglet Impression, préréglée selon
-  l'imprimante : 15 mm/s Voron, 5 mm/s Ender 3…). Gardez-la sous votre `max_z_velocity`.
-- Mailles plutôt plus larges que hautes : l'application signale les brins trop pentus (> 60°).
+- Diagonales conseillées entre 35° et 65° : l'application l'indique et alerte en dehors.
+- Ventilation forcée à 100 %. Une buse 5 à 10 °C plus froide aide les brins à figer.
+- La vitesse de l'axe Z reste sous `vitesse_z_max` (onglet Impression, préréglée selon
+  l'imprimante).
 - Seul le **G-code** contient les jours ; la vue 3D montre les brins, le STL reste plein.
 - Une seule pièce : la dentelle est ignorée pour les assemblages (gigogne, couvercle…).
-- **Commencez par la pièce de calibration** (bouton de l'onglet Dentelle) : cylindre Ø 40 mm
-  dont la maille passe de 4 à 12 mm ; gardez la plus grande maille dont les brins restent tendus.
+- **Commencez par la pièce de calibration** (bouton de l'onglet Dentelle) : cylindre Ø 40 mm,
+  16 mailles, étages de 3 mm en bas à 8 mm en haut. Réglez ensuite `affaissement` (sommets trop
+  bas : augmentez) et `pause` (brins qui ne restent pas droits : augmentez).
 
 ### G-code
 

@@ -338,14 +338,17 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
     if mode == "dentelle":
         q = pieces[0]
         d = q.dentelle
-        tours_dentelle, nb_tours, M = d.trajet(q, h, q.z[0] + debut_spirale * h)
-        nb_couches = debut_spirale + nb_tours
+        etages_dentelle = d.trajet(q, h, q.z[0] + debut_spirale * h, p.largeur_ligne)
+        nb_couches = debut_spirale + len(etages_dentelle)
         r = d.resume(q, h)
-        if r["a"] <= 0:
-            av.append("dentelle : maille trop petite pour la hauteur de couche, paroi pleine")
-        if r["pente"] > 60:
-            av.append(f"dentelle : brins très pentus ({r['pente']:.0f}°) ; mailles plus larges "
-                      "(moins de cellules) ou moins hautes conseillées")
+        if r["etages"] == 0:
+            av.append("dentelle : pas assez de hauteur entre les bords, paroi pleine")
+        if r["angle_min"] < 30:
+            av.append(f"dentelle : diagonales couchées ({r['angle_min']:.0f}°), elles risquent de "
+                      "s'affaisser ; plus de cellules ou des étages plus hauts")
+        if r["angle_max"] > 70:
+            av.append(f"dentelle : diagonales raides ({r['angle_max']:.0f}°), la buse peut accrocher "
+                      "le brin voisin ; moins de cellules ou des étages plus bas")
     objets = klipper and p.exclude_object
     noms = [_nom_objet(q.nom, i) for i, q in enumerate(pieces)]
 
@@ -408,9 +411,8 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
     for k in range(nb_couches):
         z = h * (k + 1)
         if mode == "dentelle" and k >= debut_spirale:
-            j = k - debut_spirale
-            tour = tours_dentelle[j * M:(j + 1) * M]
-            z = float(tour[:, 2].max())
+            etage = etages_dentelle[k - debut_spirale]
+            z = float(max(pts[:, 2].max() for _, pts, _ in etage))
         w(";LAYER_CHANGE")
         w(f";Z:{z:.3f}")
         w(f";HEIGHT:{h}")
@@ -429,8 +431,13 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
             if mode == "dentelle" and k >= debut_spirale:
                 if k == debut_spirale:
                     w("M106 S255 ; dentelle : ventilation maximale")
-                w.extruder(tour, min(q.dentelle.vitesse, v), "dentelle",
-                           deplacer=(k == debut_spirale), vz_max=p.vitesse_z_max)
+                for i, (type_, pts, pause) in enumerate(etage):
+                    premier = k == debut_spirale and i == 0
+                    w.extruder(pts, q.dentelle.vitesse(type_), "dentelle",
+                               deplacer=premier, vz_max=p.vitesse_z_max)
+                    if pause > 0:
+                        w(f"G4 P{int(round(pause * 1000))}")
+                        w.temps += pause
             elif mode == "spirale" and k >= debut_spirale:
                 c0 = q.contour_a(z - h)
                 c1 = q.contour_a(z)

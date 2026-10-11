@@ -273,7 +273,7 @@ def test_application(tmp_path):
     w[("Dentelle", "actif")].value = True
     assert "dentelle" in app.infos.value
     app.calibration_dentelle()
-    assert app.base.rayon == 20 and app.dentelle.maille_haut == 12
+    assert app.base.rayon == 20 and app.dentelle.maille_haut == 8
     w[("Emboitement", "choix")].value = "Couvercle"
     app.exporter_tout()
     assert len(list(tmp_path.glob(f"{app.nom.value}.*"))) == 3
@@ -335,33 +335,58 @@ def test_luminaire_trop_etroit():
         Generateur(Base(rayon=20), [], Luminaire(culot="E27")).generer()
 
 
-@pytest.mark.parametrize("motif_", ["losanges", "zigzag", "alveoles"])
-def test_dentelle_motifs_symetriques(motif_):
-    from formes.dentelle import motif
-    x = np.linspace(0, 30, 2001)
-    np.testing.assert_allclose(motif(motif_, x + np.pi), 1 - motif(motif_, x), atol=1e-12)
-    assert motif(motif_, np.array([0.0]))[0] == pytest.approx(0)
-    assert motif(motif_, np.array([np.pi]))[0] == pytest.approx(1)
-
-
-@pytest.mark.parametrize("kw", [{}, {"motif": "alveoles", "cellules": 7},
-                                {"motif": "zigzag", "hauteur_maille": 4, "maille_haut": 14}])
-def test_dentelle_trajet(kw):
-    f = Fuseau(echelle_haut=0.7, ventre=0.2).appliquer(
+def _cylindre_fuseau():
+    return Fuseau(echelle_haut=0.7, ventre=0.2).appliquer(
         Base(rayon=30, hauteur=60, couches=60, points=240).construire())
-    h = 0.2
-    pts, tours, M = Dentelle(**kw).trajet(f, h, 0.8)
-    z = pts[:, 2]
-    assert z.min() == pytest.approx(0.8) and 60 - 3 * h <= z.max() <= 60
-    # chaque tour au moins h au-dessus du précédent (jamais dans la matière), égalité aux nœuds
-    ecart = z[M:] - z[:-M]
-    assert ecart.min() == pytest.approx(h, abs=1e-9)
-    assert ecart.max() > 2                          # il y a bien des jours
-    # le trajet reste sur la surface de la forme
-    for zz in (10.0, 30.0, 50.0):
-        i = np.argmin(np.abs(z - zz))
-        r_forme = np.hypot(*f.contour_a(z[i]).T)
-        assert r_forme.min() - 0.05 <= np.hypot(*pts[i, :2]) <= r_forme.max() + 0.05   # cordes
+
+
+def _sur_segment(p, a, b, tol=1e-6):
+    t = np.clip(np.dot(p - a, b - a) / max(np.dot(b - a, b - a), 1e-12), 0, 1)
+    return np.linalg.norm(a + t * (b - a) - p) < tol
+
+
+@pytest.mark.parametrize("motif_", ["losanges", "triangles"])
+@pytest.mark.parametrize("kw", [{}, {"hauteur_maille": 3, "maille_haut": 8, "cellules": 9}])
+def test_dentelle_treillis(motif_, kw):
+    f = _cylindre_fuseau()
+    d = Dentelle(motif=motif_, **kw)
+    etages = d.trajet(f, 0.2, 0.8, largeur_ligne=0.45)
+    mvts = [m for e in etages for m in e]
+    # trajet continu : chaque mouvement part de la fin du précédent
+    for (_, a, _), (_, b, _) in zip(mvts, mvts[1:]):
+        np.testing.assert_allclose(a[-1], b[0], atol=1e-9)
+    z = d.points(etages)[:, 2]
+    assert z.min() == pytest.approx(0.8) and z.max() == pytest.approx(60)
+    treillis = [e for e in etages if any(t == "montee" for t, _, _ in e)]
+    assert len(treillis) >= 5
+    anneau_prec = None
+    for e in treillis:
+        z_bas = e[0][1][0, 2]
+        anneau = next(p for t, p, _ in e if t == "anneau")
+        z_haut = anneau[-1, 2]
+        for t, pts, pause in e:
+            assert len(pts) == 2 or t == "anneau"                 # montées / descentes : segments droits
+            assert pts[:, 2].min() >= z_bas - 1e-9                # jamais sous l'anneau d'appui
+            if t == "montee":
+                assert pts[1, 2] == pytest.approx(z_haut + d.affaissement) and pause == d.pause
+            if t == "descente" and anneau_prec is not None:
+                # chaque descente se pose sur l'anneau du dessous
+                fin = pts[-1]
+                assert fin[2] == pytest.approx(z_bas)
+                assert any(_sur_segment(fin[:2], a[:2], b[:2], 1e-6)
+                           for a, b in zip(anneau_prec, anneau_prec[1:]))
+        # l'anneau passe par tous les sommets des montées (à la hauteur nominale)
+        sommets = [p[1] - [0, 0, d.affaissement] for t, p, _ in e if t == "montee"]
+        for s_ in sommets:
+            assert np.min(np.linalg.norm(anneau - s_, axis=1)) < 1e-6
+        # la montée de raccord ne repasse pas sur un brin existant
+        montees = [p for t, p, _ in e if t == "montee"]
+        assert np.linalg.norm(montees[-1][0, :2] - montees[0][0, :2]) > 0.8
+        anneau_prec = anneau
+
+
+def test_dentelle_anciens_reglages():
+    assert Dentelle(motif="zigzag").motif == "losanges"
 
 
 def test_dentelle_gcode_vitesse_z():
@@ -369,7 +394,7 @@ def test_dentelle_gcode_vitesse_z():
     g = Generateur(Base(rayon=25, hauteur=30, couches=40, points=180), [], dentelle=Dentelle())
     texte, trajet = generer_gcode(g.generer(), ParametresImpression(vignettes=(), vitesse_z_max=6))
     assert trajet.stats["mode"] == "dentelle"
-    assert "M106 S255" in texte
+    assert "M106 S255" in texte and "G4 P500" in texte
     assert re.search(r"; max_z_height = 30\.000", texte)
     pos, F, vz = None, None, 0.0
     for l in texte.splitlines():
@@ -382,7 +407,7 @@ def test_dentelle_gcode_vitesse_z():
                 if d > 0:
                     vz = max(vz, F / 60 * abs(p[2] - pos[2]) / d)
             pos = p
-    assert 5 < vz <= 6 * 1.01        # coordonnées arrondies au µm dans le G-code
+    assert vz <= 6 * 1.01        # coordonnées arrondies au µm dans le G-code
 
 
 def test_dentelle_plusieurs_pieces_ignoree():
@@ -394,7 +419,7 @@ def test_dentelle_plusieurs_pieces_ignoree():
 
 def test_dentelle_abat_jour():
     g = Generateur(Base(rayon=45, hauteur=50, couches=50, points=180), [Fuseau(echelle_haut=0.6, ventre=0)],
-                   Luminaire(culot="E14"), Dentelle(cellules=16))
+                   Luminaire(culot="E14"), Dentelle(cellules=28))
     a = g.generer()
     from formes.visualisation import trajet_apercu
     brins = trajet_apercu(a.pieces[0])

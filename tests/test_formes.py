@@ -249,3 +249,25 @@ def test_vignettes():
         assert png[:8] == b"\x89PNG\r\n\x1a\n"
         assert int.from_bytes(png[16:20], "big") == int(l)
         assert int.from_bytes(png[20:24], "big") == int(h)
+
+
+def test_application(tmp_path):
+    pytest.importorskip("ipywidgets")
+    from formes.application import Application
+
+    app = Application(tmp_path)
+    w = app.widgets
+    w[("Nervures", "actif")].value = True
+    w[("Nervures", "nombre")].value = 20
+    w[("Emboitement", "choix")].value = "Couvercle"
+    w[("Impression", "filament")].value = "PETG"
+    w[("Impression", "imprimante")].value = "Voron 2.4 – 350"
+    assert app.impression.temp_buse == 235 and app.impression.plateau == (350.0, 350.0)
+    app._deplacer(app.deformations[-1], -1)
+    assert "2 pièces" in app.infos.value
+    app.exporter_tout()
+    assert len(list(tmp_path.glob(f"{app.nom.value}.*"))) == 3
+    app.sauvegarder()
+    autre = Application(tmp_path)
+    autre.charger(app.nom.value)
+    assert autre.reglages() == app.reglages()

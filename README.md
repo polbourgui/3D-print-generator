@@ -7,19 +7,24 @@ exporter en **visualisation 3D** (HTML interactif), **STL** et **G-code Klipper*
 
 ## Installation
 
-Une seule ligne à copier-coller : elle clone le dépôt, crée l'environnement virtuel
+**Windows, le plus simple :** téléchargez le dépôt (bouton vert **Code → Download ZIP** sur
+GitHub, puis extrayez-le) ou clonez-le, et **double-cliquez sur `Lancer.bat`**. La première
+fois, il crée l'environnement Python et installe les dépendances (quelques minutes) ; ensuite
+il ouvre directement l'application dans le navigateur.
+
+Ou bien, une seule ligne à copier-coller : elle clone le dépôt, crée l'environnement virtuel
 `.venv`, installe les dépendances et ouvre l'application dans le navigateur.
 
 **Windows (PowerShell)**
 
 ```powershell
-git clone https://github.com/polbourgui/3D-print-generator.git; cd 3D-print-generator; python -m venv .venv; .venv\Scripts\python -m pip install -r requirements.txt; .venv\Scripts\python -m voila generateur_formes.ipynb
+git clone https://github.com/polbourgui/3D-print-generator.git; cd 3D-print-generator; python -m venv .venv; .venv\Scripts\python -m pip install -r requirements.txt; .venv\Scripts\python lancer.py
 ```
 
 **Linux / macOS**
 
 ```bash
-git clone https://github.com/polbourgui/3D-print-generator.git && cd 3D-print-generator && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt && .venv/bin/python -m voila generateur_formes.ipynb
+git clone https://github.com/polbourgui/3D-print-generator.git && cd 3D-print-generator && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt && .venv/bin/python lancer.py
 ```
 
 Les commandes appellent directement le Python du `.venv` : pas besoin de l'activer
@@ -32,11 +37,12 @@ Depuis le dossier `3D-print-generator` (remplacez `.venv\Scripts\python` par
 
 | commande | ce qui s'ouvre |
 |---|---|
-| `.venv\Scripts\python -m voila generateur_formes.ipynb` | l'application seule, sans code |
+| double-clic sur `Lancer.bat`, ou `.venv\Scripts\python lancer.py` | l'application seule, sans code, le navigateur s'ouvre tout seul |
 | `.venv\Scripts\python -m jupyter lab generateur_formes.ipynb` | la même application dans Jupyter Lab (menu **Run → Run All Cells**) |
 | `.venv\Scripts\python -m jupyter lab generateur_formes_script.ipynb` | la version en code |
 
-Pour arrêter : **Ctrl + C** dans le terminal.
+Pour arrêter : **Ctrl + C** dans le terminal, ou fermez sa fenêtre.
+Si le navigateur ne s'ouvre pas, copiez l'adresse affichée dans le terminal (`http://localhost:8866/`).
 
 ## Application
 

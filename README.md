@@ -30,9 +30,9 @@ Base ──► Fuseau ──► Torsion ──► Ondulation ──► … ─�
 
 | Catégorie | Modules |
 |---|---|
-| Base | `cercle`, `polygone`, `etoile`, `superellipse`, `goutte` |
-| Déformations | `Fuseau`, `Torsion`, `Ondulation`, `Plis`, `Bruit`, `Pincement`, `Courbure` |
-| Emboîtements | `Gigogne` (coques imbriquées imprimables en place), `Empilement` (modules à col d'emboîtement, chanfrein 45°), `Reseau` (grille) |
+| Base | `cercle`, `polygone`, `etoile`, `superellipse`, `goutte`, `fleur`, `engrenage` |
+| Déformations | `Fuseau`, `Torsion`, `Ondulation`, `Plis`, `Bruit`, `Pincement`, `Courbure`, `Nervures`, `Losanges`, `Ecailles`, `Facettes`, `Bec` |
+| Emboîtements | `Gigogne` (coques imbriquées imprimables en place), `Empilement` (modules à col d'emboîtement, chanfrein 45°), `Reseau` (grille), `Couvercle` (couvercle à col, retourné automatiquement pour l'impression) |
 
 ### G-code
 
@@ -93,7 +93,7 @@ gen = Generateur(
 )
 assemblage = gen.generer()
 exporter_html(figure_3d(assemblage), "sorties/vase.html")
-assemblage.exporter_stl("sorties/vase.stl")
+assemblage.exporter_stl("sorties/vase.stl")   # pièces posées pour l'impression
 exporter_gcode(assemblage, "sorties/vase.gcode",
                ParametresImpression(mode="couches", maillage_adaptatif=True, purge="LINE_PURGE"))
 ```

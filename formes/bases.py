@@ -8,7 +8,7 @@ import numpy as np
 
 from .geometrie import Forme, Module, param
 
-PROFILS = ("cercle", "polygone", "etoile", "superellipse", "goutte")
+PROFILS = ("cercle", "polygone", "etoile", "superellipse", "goutte", "fleur", "engrenage")
 
 
 @dataclass
@@ -21,6 +21,8 @@ class Base(Module):
       - ``etoile``       : ``cotes`` branches, creux réglé par ``creux``
       - ``superellipse`` : carré arrondi (exposant ``exposant``, 2 = cercle)
       - ``goutte``       : forme asymétrique
+      - ``fleur``        : ``cotes`` pétales arrondis, échancrure réglée par ``creux``
+      - ``engrenage``    : ``cotes`` dents trapézoïdales, profondeur réglée par ``creux``
     """
 
     profil: str = "cercle"
@@ -29,7 +31,7 @@ class Base(Module):
     couches: int = param(120, 10, 600, 10, "résolution verticale (couches de calcul)")
     points: int = param(240, 24, 1440, 24, "points par contour")
     cotes: int = param(6, 3, 24, 1, "côtés / branches")
-    creux: float = param(0.35, 0.0, 0.9, 0.01, "profondeur des creux (étoile)")
+    creux: float = param(0.35, 0.0, 0.9, 0.01, "profondeur des creux (étoile, fleur, engrenage)")
     arrondi: float = param(0.15, 0.0, 1.0, 0.01, "arrondi des angles (polygone)")
     exposant: float = param(4.0, 1.0, 12.0, 0.1, "exposant (superellipse)")
 
@@ -51,6 +53,12 @@ class Base(Module):
             return r0 * (np.abs(np.cos(theta)) ** p + np.abs(np.sin(theta)) ** p) ** (-1 / p)
         if self.profil == "goutte":
             return r0 * (0.75 + 0.25 * np.cos(theta)) * (1 + 0.15 * np.cos(2 * theta))
+        if self.profil == "fleur":
+            return r0 * (1 - self.creux * np.abs(np.sin(n * theta / 2)))
+        if self.profil == "engrenage":
+            tri = 1 - 2 * np.abs((n * theta / (2 * np.pi)) % 1 - 0.5)    # 0 au creux, 1 en haut de dent
+            dent = np.clip(2.5 * tri - 0.75, 0, 1)                         # flancs droits, sommet plat
+            return r0 * (1 - self.creux * (1 - dent))
         raise ValueError(f"profil inconnu : {self.profil!r} (choix : {', '.join(PROFILS)})")
 
     def construire(self) -> Forme:

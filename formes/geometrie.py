@@ -60,9 +60,11 @@ class Forme:
     nom: str = "forme"
     fond: bool = True          # la pièce a-t-elle un fond plein (G-code) ?
     ferme_haut: bool = False   # fermer le haut du maillage (visualisation/STL)
+    retournee: bool = False    # montrée à l'envers : à retourner pour l'impression
 
     def copie(self, **kw) -> "Forme":
-        d = dict(pts=self.pts.copy(), nom=self.nom, fond=self.fond, ferme_haut=self.ferme_haut)
+        d = dict(pts=self.pts.copy(), nom=self.nom, fond=self.fond, ferme_haut=self.ferme_haut,
+                 retournee=self.retournee)
         d.update(kw)
         return Forme(**d)
 
@@ -94,6 +96,19 @@ class Forme:
         f = self.copie()
         f.pts += np.array([dx, dy, dz])
         return f
+
+    def retourner(self) -> "Forme":
+        """Demi-tour autour d'un axe horizontal (x) passant par le centre de la pièce.
+
+        L'ordre des couches est inversé pour que z reste croissant, et celui des
+        points pour que les contours restent dans le sens trigonométrique.
+        """
+        mn, mx = self.boite()
+        pts = self.pts[::-1, ::-1].copy()
+        pts[:, :, 1] = mn[1] + mx[1] - pts[:, :, 1]
+        pts[:, :, 2] = mn[2] + mx[2] - pts[:, :, 2]
+        return self.copie(pts=pts, fond=self.ferme_haut, ferme_haut=self.fond,
+                          retournee=not self.retournee)
 
     def contour_a(self, z: float) -> np.ndarray:
         """Contour (N, 2) interpolé linéairement à la hauteur z."""
@@ -153,15 +168,18 @@ class Assemblage:
 
         Les pièces qui touchent déjà le plateau (z = 0) restent en place :
         c'est ce qui permet d'imprimer des pièces gigognes « en place ».
+        Les pièces montrées à l'envers (``retournee``, ex. un couvercle) sont
+        d'abord remises dans leur sens d'impression.
         """
+        pieces = [p.retourner() if p.retournee else p for p in self.pieces]
         posees, flottantes = [], []
-        for p in self.pieces:
+        for p in pieces:
             (flottantes if p.boite()[0][2] > 1e-6 else posees).append(p)
         if not flottantes:
             return Assemblage(list(posees))
         res = list(posees)
         x_libre = max(p.boite()[1][0] for p in posees) + marge if posees else None
-        cx = np.mean([p.centres().mean(0) for p in self.pieces], axis=0)
+        cx = np.mean([p.centres().mean(0) for p in pieces], axis=0)
         for p in flottantes:
             q = p.translater(dz=-p.boite()[0][2])
             if x_libre is not None:
@@ -174,11 +192,17 @@ class Assemblage:
         return Assemblage([r.translater(dx, dy) for r in res])
 
     # -- export STL -------------------------------------------------------------
-    def exporter_stl(self, chemin) -> Path:
+    def exporter_stl(self, chemin, impression: bool = True) -> Path:
+        """Exporte en STL binaire.
+
+        ``impression=True`` : pièces posées sur le plateau, côte à côte et dans
+        leur sens d'impression (prêt pour un trancheur). ``False`` : disposition
+        de la vue 3D (vue éclatée, couvercle en place…).
+        """
         chemin = Path(chemin)
         chemin.parent.mkdir(parents=True, exist_ok=True)
         tris = []
-        for p in self.pieces:
+        for p in (self.pour_impression() if impression else self).pieces:
             v, f = p.maillage()
             tris.append(v[f])
         tris = np.concatenate(tris).astype(np.float32)

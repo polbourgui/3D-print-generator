@@ -7,13 +7,27 @@ exporter en **visualisation 3D** (HTML interactif), **STL** et **G-code Klipper*
 
 ## Installation
 
-```bash
-git clone https://github.com/polbourgui/3D-print-generator.git
-cd 3D-print-generator
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-jupyter lab generateur_formes.ipynb
+Une seule ligne à copier-coller : elle clone le dépôt, crée l'environnement virtuel
+`.venv`, installe les dépendances et ouvre le notebook.
+
+**Windows (PowerShell)**
+
+```powershell
+git clone https://github.com/polbourgui/3D-print-generator.git; cd 3D-print-generator; python -m venv .venv; .venv\Scripts\python -m pip install -r requirements.txt; .venv\Scripts\python -m jupyter lab generateur_formes.ipynb
 ```
+
+**Linux / macOS**
+
+```bash
+git clone https://github.com/polbourgui/3D-print-generator.git && cd 3D-print-generator && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt && .venv/bin/python -m jupyter lab generateur_formes.ipynb
+```
+
+Les commandes appellent directement le Python du `.venv` : pas besoin de l'activer
+(ni de modifier la politique d'exécution des scripts sous Windows).
+
+Pour relancer le notebook plus tard, depuis le dossier `3D-print-generator` :
+`.venv\Scripts\python -m jupyter lab generateur_formes.ipynb` (Windows) ou
+`.venv/bin/python -m jupyter lab generateur_formes.ipynb` (Linux / macOS).
 
 ## Principe
 
@@ -30,9 +44,9 @@ Base ──► Fuseau ──► Torsion ──► Ondulation ──► … ─�
 
 | Catégorie | Modules |
 |---|---|
-| Base | `cercle`, `polygone`, `etoile`, `superellipse`, `goutte` |
-| Déformations | `Fuseau`, `Torsion`, `Ondulation`, `Plis`, `Bruit`, `Pincement`, `Courbure` |
-| Emboîtements | `Gigogne` (coques imbriquées imprimables en place), `Empilement` (modules à col d'emboîtement, chanfrein 45°), `Reseau` (grille) |
+| Base | `cercle`, `polygone`, `etoile`, `superellipse`, `goutte`, `fleur`, `engrenage` |
+| Déformations | `Fuseau`, `Torsion`, `Ondulation`, `Plis`, `Bruit`, `Pincement`, `Courbure`, `Nervures`, `Losanges`, `Ecailles`, `Facettes`, `Bec` |
+| Emboîtements | `Gigogne` (coques imbriquées imprimables en place), `Empilement` (modules à col d'emboîtement, chanfrein 45°), `Reseau` (grille), `Couvercle` (couvercle à col, retourné automatiquement pour l'impression) |
 
 ### G-code
 
@@ -93,7 +107,7 @@ gen = Generateur(
 )
 assemblage = gen.generer()
 exporter_html(figure_3d(assemblage), "sorties/vase.html")
-assemblage.exporter_stl("sorties/vase.stl")
+assemblage.exporter_stl("sorties/vase.stl")   # pièces posées pour l'impression
 exporter_gcode(assemblage, "sorties/vase.gcode",
                ParametresImpression(mode="couches", maillage_adaptatif=True, purge="LINE_PURGE"))
 ```
@@ -119,6 +133,6 @@ automatiquement à partir des `param(...)`.
 ## Tests
 
 ```bash
-pip install pytest
-python -m pytest tests
+.venv/bin/python -m pip install pytest      # Windows : .venv\Scripts\python …
+.venv/bin/python -m pytest tests
 ```

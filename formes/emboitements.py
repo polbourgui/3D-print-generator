@@ -5,6 +5,7 @@
 - ``Empilement`` : modules empilables ; chaque pièce porte un col qui s'emboîte
                    dans le pied de la suivante.
 - ``Reseau``     : copies disposées en grille, avec variation de rotation/échelle.
+- ``Couvercle``  : ajoute un couvercle à col qui s'emboîte dans l'ouverture.
 """
 
 from __future__ import annotations
@@ -149,4 +150,38 @@ class Reseau(Emboitement):
         return Assemblage([p.translater(dx, dy) for p in pieces])
 
 
-TOUS = [Gigogne, Empilement, Reseau]
+
+@dataclass
+class Couvercle(Emboitement):
+    """Ajoute un couvercle ajusté à l'ouverture de la forme.
+
+    Le couvercle est un plateau (contour du sommet élargi de ``debord``) prolongé
+    par un col qui entre dans l'ouverture, rétréci de ``paroi + jeu``.
+    Il est montré en place, au-dessus de la forme ; pour l'impression (G-code,
+    STL) il est retourné : plateau sur le plateau d'impression, col vers le haut.
+    Pour un plateau plein, gardez ``epaisseur`` ≤ couches_fond × hauteur_couche.
+    """
+
+    epaisseur: float = param(0.8, 0.2, 5, 0.1, "épaisseur du plateau (mm)")
+    debord: float = param(1.0, -5, 10, 0.5, "débord du plateau au-delà de la paroi (mm)")
+    hauteur_col: float = param(6.0, 0, 30, 0.5, "hauteur du col (mm, 0 = sans col)")
+    paroi: float = param(0.8, 0.4, 4, 0.1, "épaisseur de paroi imprimée (mm)")
+    jeu: float = param(0.3, 0.05, 2, 0.05, "jeu d'emboîtement (mm)")
+    ecart_vue: float = param(15.0, 0, 80, 1, "écart vertical dans la vue (mm)")
+
+    def appliquer(self, forme):
+        haut = forme.pts[-1, :, :2]
+        z = forme.z[-1] + self.ecart_vue
+        couches = []                                         # vue : col en bas, plateau en haut
+        if self.hauteur_col > 0:
+            col = decaler_contour(haut, -(self.paroi + self.jeu))
+            couches += [(col, z - self.hauteur_col), (col, z)]
+        plateau = decaler_contour(haut, self.debord)
+        z_plateau = z + 1e-3 if couches else z               # marche quasi horizontale col → plateau
+        couches += [(plateau, z_plateau), (plateau, z_plateau + self.epaisseur)]
+        pts = np.array([np.column_stack([c, np.full(len(c), zc)]) for c, zc in couches])
+        couvercle = Forme(pts, nom="couvercle", fond=False, ferme_haut=True, retournee=True)
+        return Assemblage([forme.copie(), couvercle])
+
+
+TOUS = [Gigogne, Empilement, Reseau, Couvercle]

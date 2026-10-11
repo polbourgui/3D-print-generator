@@ -32,8 +32,9 @@ from .geometrie import Forme, Module, param
 MOTIFS = ("losanges", "triangles")
 
 # types de mouvement → attribut de vitesse
-VITESSES = {"bord": "vitesse_anneau", "anneau": "vitesse_anneau",
+VITESSES = {"bord": "vitesse_anneau", "anneau": "vitesse_anneau", "montee_lente": "vitesse_montee",
             "montee": "vitesse_montee", "descente": "vitesse_descente"}
+EN_FIL = {"anneau", "montee_lente", "montee", "descente"}       # brins tirés dans le vide
 
 
 def _point_surface(forme: Forme, indice: np.ndarray, z: np.ndarray) -> np.ndarray:
@@ -70,9 +71,12 @@ class Dentelle(Module):
     bord_haut: float = param(3.0, 0, 40, 0.5, "bord plein en haut (mm)")
     vitesse_montee: float = param(4.0, 1, 20, 0.5, "vitesse des montées dans le vide (mm/s)")
     vitesse_descente: float = param(6.0, 1, 30, 0.5, "vitesse des descentes (mm/s)")
-    vitesse_anneau: float = param(8.0, 2, 40, 1, "vitesse des anneaux et des bords (mm/s)")
+    vitesse_anneau: float = param(5.0, 2, 40, 1, "vitesse des anneaux et des bords (mm/s)")
     pause: float = param(0.5, 0, 3, 0.1, "pause au sommet de chaque montée (s)")
     affaissement: float = param(0.5, 0, 3, 0.1, "surélévation des sommets (mm), compense l'affaissement")
+    pression: float = param(0.3, 0, 1, 0.05, "enfoncement de l'anneau dans les sommets (mm)")
+    pause_noeud: float = param(0.2, 0, 2, 0.05, "pause à chaque soudure (sommet de l'anneau, pose d'une descente) (s)")
+    debit_fil: float = param(0.85, 0.5, 1.2, 0.05, "débit des brins tirés dans le vide (× débit normal)")
 
     def __post_init__(self):
         if self.motif not in MOTIFS:          # anciens réglages (zigzag, alvéoles…)
@@ -123,6 +127,9 @@ class Dentelle(Module):
             sommets = noeuds + (demi if self.motif == "losanges" else 0.0)
             V = surf(noeuds, za)
             T = surf(sommets, zb)
+            # l'anneau du dessous a été imprimé plus bas de « pression » (sauf sur le bord plein)
+            if k > 0:
+                V[:, 2] -= self.pression
             # le dernier retour se pose juste avant le nœud 0 (à ~2 largeurs de ligne),
             # d'où une montée de raccord vers l'anneau qui ne touche aucun brin existant
             eps = 2 * largeur_ligne
@@ -131,31 +138,47 @@ class Dentelle(Module):
             Lp = V[n - 1] + frac_v * (V[n] - V[n - 1])
             W = T[n - 1] + frac_t * (T[n] - T[n - 1])
             mvts = []
+
+            def monter(depart, sommet):
+                # début en douceur (1/5 à demi-vitesse), puis pause au sommet pour figer le brin
+                relais = depart + 0.2 * (sommet - depart)
+                mvts.append(("montee_lente", np.array([depart, relais]), 0.0))
+                mvts.append(("montee", np.array([relais, sommet]), self.pause))
+
             for i in range(n):
-                mvts.append(("montee", np.array([V[i], T[i] + fall]), self.pause))
+                monter(V[i], T[i] + fall)
                 fin = Lp if i == n - 1 else V[i + 1]
-                mvts.append(("descente", np.array([T[i] + fall, fin]), 0.0))
-            mvts.append(("montee", np.array([Lp, W + fall]), self.pause))
-            # anneau : relie tous les sommets ; il se termine sur le sommet 0,
-            # premier nœud de l'étage suivant
-            anneau = np.vstack([W + fall, W, T[:n], W, T[0]])
-            mvts.append(("anneau", anneau, 0.0))
+                mvts.append(("descente", np.array([T[i] + fall, fin]), self.pause_noeud))
+            monter(Lp, W + fall)
+            # anneau : relie tous les sommets, enfoncé de « pression » et soudé à chacun
+            # (pause) pour ne pas se rétracter comme un élastique ; il se termine sur le
+            # sommet 0, premier nœud de l'étage suivant
+            bas = np.array([0.0, 0.0, -self.pression])
+            prec = W + fall
+            for cible in [W, *T[:n], W, T[0]]:
+                mvts.append(("anneau", np.array([prec, cible + bas]), self.pause_noeud))
+                prec = cible + bas
             etages.append(mvts)
             if self.motif == "losanges":
                 decal += 0.5
 
         # 3. bord du haut : spirale sur le polygone du dernier anneau (cordes, comme lui)
-        z = Z[-1]
+        abaisse = self.pression if len(Z) > 1 else 0.0
+        z = Z[-1] - abaisse
         noeuds = 2 * np.pi * (np.arange(n + 1) + decal) / n
         sous = max(int(np.ceil(N / n)), 2)            # points par corde (montée régulière)
         while z < z_haut - 1e-9:
             dz = min(h, z_haut - z)
-            pts = [surf(noeuds[:1], z)]                 # point de départ du tour
+            def coin(i, zz):                            # xy pris au niveau nominal de l'anneau
+                c = surf(noeuds[i:i + 1], zz + abaisse)
+                c[:, 2] -= abaisse
+                return c
+
+            pts = [coin(0, z)]                          # point de départ du tour
             for i in range(n):
                 s = np.arange(1, sous + 1) / sous
                 zz = z + dz * (i + s) / n
-                A = surf(noeuds[i:i + 1], zz)
-                B = surf(noeuds[i + 1:i + 2], zz)
+                A, B = coin(i, zz), coin(i + 1, zz)
                 pts.append(A + s[:, None] * (B - A))
             etages.append([("bord", np.vstack(pts), 0.0)])
             z += dz
@@ -166,7 +189,11 @@ class Dentelle(Module):
         return np.vstack([p for e in etages for _, p, _ in e])
 
     def vitesse(self, type_: str) -> float:
-        return getattr(self, VITESSES[type_])
+        v = getattr(self, VITESSES[type_])
+        return v / 2 if type_ == "montee_lente" else v
+
+    def debit(self, type_: str) -> float:
+        return self.debit_fil if type_ in EN_FIL else 1.0
 
     def resume(self, forme: Forme, h: float) -> dict:
         """Dimensions d'une maille et angle des diagonales (pour l'interface)."""

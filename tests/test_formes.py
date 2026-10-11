@@ -362,27 +362,35 @@ def test_dentelle_treillis(motif_, kw):
     anneau_prec = None
     for e in treillis:
         z_bas = e[0][1][0, 2]
-        anneau = next(p for t, p, _ in e if t == "anneau")
-        z_haut = anneau[-1, 2]
+        anneau = np.vstack([p for t, p, _ in e if t == "anneau"])
+        z_nominal = anneau[-1, 2] + d.pression
         for t, pts, pause in e:
-            assert len(pts) == 2 or t == "anneau"                 # montées / descentes : segments droits
+            assert len(pts) == 2                                  # uniquement des segments droits
             assert pts[:, 2].min() >= z_bas - 1e-9                # jamais sous l'anneau d'appui
             if t == "montee":
-                assert pts[1, 2] == pytest.approx(z_haut + d.affaissement) and pause == d.pause
+                assert pts[1, 2] == pytest.approx(z_nominal + d.affaissement) and pause == d.pause
+            if t in ("anneau", "descente"):
+                assert pause == d.pause_noeud                     # soudures
             if t == "descente" and anneau_prec is not None:
                 # chaque descente se pose sur l'anneau du dessous
                 fin = pts[-1]
                 assert fin[2] == pytest.approx(z_bas)
                 assert any(_sur_segment(fin[:2], a[:2], b[:2], 1e-6)
                            for a, b in zip(anneau_prec, anneau_prec[1:]))
-        # l'anneau passe par tous les sommets des montées (à la hauteur nominale)
-        sommets = [p[1] - [0, 0, d.affaissement] for t, p, _ in e if t == "montee"]
+        # l'anneau passe par tous les sommets des montées, enfoncé de « pression »
+        sommets = [p[1] - [0, 0, d.affaissement + d.pression] for t, p, _ in e if t == "montee"]
         for s_ in sommets:
             assert np.min(np.linalg.norm(anneau - s_, axis=1)) < 1e-6
         # la montée de raccord ne repasse pas sur un brin existant
-        montees = [p for t, p, _ in e if t == "montee"]
+        montees = [p for t, p, _ in e if t == "montee_lente"]
         assert np.linalg.norm(montees[-1][0, :2] - montees[0][0, :2]) > 0.8
         anneau_prec = anneau
+
+
+def test_dentelle_debit_fil():
+    d = Dentelle(debit_fil=0.8)
+    assert d.debit("montee") == d.debit("anneau") == 0.8 and d.debit("bord") == 1.0
+    assert d.vitesse("montee_lente") == d.vitesse_montee / 2
 
 
 def test_dentelle_anciens_reglages():
@@ -394,7 +402,7 @@ def test_dentelle_gcode_vitesse_z():
     g = Generateur(Base(rayon=25, hauteur=30, couches=40, points=180), [], dentelle=Dentelle())
     texte, trajet = generer_gcode(g.generer(), ParametresImpression(vignettes=(), vitesse_z_max=6))
     assert trajet.stats["mode"] == "dentelle"
-    assert "M106 S255" in texte and "G4 P500" in texte
+    assert "M106 S255" in texte and "G4 P500" in texte and "G4 P200" in texte
     assert re.search(r"; max_z_height = 30\.000", texte)
     pos, F, vz = None, None, 0.0
     for l in texte.splitlines():

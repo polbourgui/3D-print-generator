@@ -38,6 +38,12 @@ def test_module_inactif_ignore():
     assert not np.allclose(gen.forme().pts, petite_base().construire().pts)
 
 
+def test_classes_sans_parentheses():
+    gen = Generateur(petite_base(), [Torsion], Couvercle)
+    assert isinstance(gen.emboitement, Couvercle) and isinstance(gen.deformations[0], Torsion)
+    assert len(gen.generer()) == 2
+
+
 def test_gigogne_concentrique():
     a = Gigogne(nombre=3, paroi=1, jeu=1, retrait_hauteur=2).appliquer(petite_base().construire())
     assert len(a) == 3

@@ -16,6 +16,14 @@ class Generateur:
     deformations: list[Deformation] = field(default_factory=list)
     emboitement: Emboitement | None = None
 
+    def __post_init__(self):
+        # tolère l'oubli des parenthèses : ``Couvercle`` au lieu de ``Couvercle()``
+        def instance(m):
+            return m() if isinstance(m, type) else m
+        self.base = instance(self.base)
+        self.deformations = [instance(d) for d in self.deformations]
+        self.emboitement = instance(self.emboitement)
+
     # -- activation des modules --------------------------------------------
     def module(self, nom: str):
         """Retrouve un module par son nom de classe (insensible à la casse)."""

@@ -54,7 +54,8 @@ Tout se règle à la souris, sans saisie :
 | **Déformations** | une case pour activer chaque module, ses curseurs, ↑ / ↓ pour l'ordre d'application |
 | **Emboîtement** | boutons radio : aucun, gigogne, empilement, réseau, couvercle, luminaire |
 | **Dentelle** | paroi ajourée en filet, imprimée en non planaire : motif (losanges, zigzag, alvéoles), mailles, bords pleins, pièce de calibration |
-| **Impression** | préréglages d'imprimante (Voron, Creality K1, Ender 3, Prusa…) et de filament (PLA, PETG, ABS, ASA, TPU), firmware, mode spirale / couches, vitesses, options Klipper (macros, purge KAMP, maillage adaptatif, exclude object) |
+| **Impression** | préréglages d'imprimante (Voron, Creality K1, Ender 3, Prusa…) et de filament (PLA, PETG, PETG transparent Arianeplast, ABS, ASA, TPU), firmware, mode spirale / couches, vitesses, options Klipper (macros, purge KAMP, maillage adaptatif, exclude object) |
+| **Plaques test** | plaques 35 × 70 mm pour régler un filament (PETG transparent Arianeplast), une série de réglages par plaque, gravés en empreinte dans le bas de la pièce ; G-code, STL et fiche d'évaluation |
 | **Export** | HTML, STL et G-code en un clic, trajet G-code, ouverture du dossier `sorties/`, sauvegarde et chargement des réglages |
 
 En haut : **Aperçu** (Rapide / Normal / Fin) règle la finesse de la vue pendant les
@@ -151,6 +152,58 @@ que de **segments droits** entre des nœuds placés sur la surface de la forme.
 | montées qui ne restent pas droites | `vitesse_montee` ↓, `pause` ↑ |
 | cheveux, fils | buse 5 à 10 °C plus froide, `pause` et `pause_noeud` ↓ |
 | brin qui touche le flanc chaud de la buse pendant les descentes | `angle_buse` ↓ (35°) |
+
+### Plaques de test (PETG transparent Arianeplast)
+
+Onglet **Plaques test** : une série de plaques **35 × 70 mm** (2 mm d'épaisseur par défaut),
+pleines, en lignes parallèles, chacune avec ses propres réglages. Les réglages sont gravés en
+**empreinte dans le bas de la plaque** (bande du bord avant) :
+
+- `dessous` (par défaut) : en creux dans les premières couches, côté plateau. Sur du PETG
+  transparent on la lit **à travers** la plaque, à l'endroit, vue de dessus ; la face du
+  dessus reste lisse pour juger la transparence ;
+- `dessus` : en creux dans les dernières couches ; `aucune` : sans texte.
+
+```
+#3 T245      plaque n° 3, buse 245 °C
+D105 V25     débit 105 %, 25 mm/s
+F20 H20      ventilateur 20 %, couches de 0,20 mm   (L45 : ligne 0,45 mm ; ML / MT / MX : lignes
+                                                     longitudinales / transversales / croisées)
+```
+
+1. **Préréglage PETG transparent Arianeplast** : plateau 75 °C, buse 245 °C, débit 1,05,
+   25 mm/s, ventilateur 20 %, couches 0,20 mm (vérifiez la plage indiquée sur votre bobine).
+2. Choisissez le **paramètre testé** (température, débit, vitesse, ventilateur, hauteur de
+   couche, largeur de ligne, orientation des lignes) ; les valeurs se modifient au clavier
+   (`235 240 245`, `1,02 ; 1,05`). Un second paramètre donne une grille (toutes les combinaisons).
+3. **Exporter G-code + fiche** : le G-code et une fiche `.csv` (Excel / LibreOffice) pour noter
+   chaque plaque (transparence, bulles, lignes visibles, fils, adhérence).
+
+Les plaques s'impriment **l'une après l'autre** : chacune à sa température (ordre croissant pour
+ne jamais attendre le refroidissement), avec une ligne d'amorçage après chaque chauffe, son débit,
+sa vitesse, sa ventilation (à partir de la 2e couche) et sa hauteur de couche. Les plaques sont
+gravées et posées de l'arrière vers l'avant ; au-delà d'un plateau, un G-code par lot. Si les
+plaques sont plus épaisses que le **dégagement de la tête** (hauteur libre sous le conduit de
+ventilation), cochez **un G-code par plaque**. Le pixel du texte est un multiple de la largeur de
+ligne et ses bords tombent entre deux lignes : l'empreinte retire des lignes entières, nette dans
+les deux sens de remplissage. Le **STL** (plaques avec empreinte) sert à trancher ailleurs ; les
+réglages de chaque plaque sont alors à saisir à la main.
+
+Pistes pour la transparence : buse chaude (245–255 °C), lent (20–30 mm/s), débit légèrement
+élevé (1,03–1,08) pour combler les vides entre lignes, peu ou pas de ventilation, couches
+épaisses, lignes toutes dans le même sens, filament bien sec.
+
+En script :
+
+```python
+from formes.plaques import *
+
+p = ParametresImpression(**PETG_ARIANEPLAST, plateau=(300.0, 300.0))
+cfg = plan(REGLAGE_TRANSPARENT, temp_buse=[240, 250, 260], flux=[1.02, 1.06])  # 6 plaques
+exporter_plaques(cfg, "sorties/petg.gcode", p)
+exporter_fiche(cfg, "sorties/petg.csv", p)
+exporter_stl_plaques(serie("ventilateur", [0, 20, 40]), "sorties/petg_vent.stl", p)
+```
 
 ### G-code
 

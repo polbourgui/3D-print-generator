@@ -8,6 +8,8 @@ Tout se règle avec des menus, curseurs, cases et boutons :
 - **Emboîtement**  : choix par boutons radio ;
 - **Impression**   : préréglages d'imprimante et de filament, firmware, mode,
                      options Klipper (macros, purge, maillage adaptatif…) ;
+- **Plaques test** : plaques 35 × 70 mm pour régler un filament (PETG
+                     transparent Arianeplast), réglages gravés en empreinte ;
 - **Export**       : HTML, STL et G-code en un clic, sauvegarde des réglages.
 
 Lancement dans un notebook ::
@@ -34,6 +36,7 @@ from .emboitements import TOUS, Luminaire
 from .gcode import ParametresImpression, _porte_a_faux, exporter_gcode
 from .generateur import Generateur
 from .geometrie import Assemblage
+from . import plaques as PL
 from .visualisation import figure_3d, figure_trajet, exporter_html
 
 # ---------------------------------------------------------------------------
@@ -56,6 +59,8 @@ IMPRIMANTES = {
 FILAMENTS = {
     "PLA":  dict(temp_buse=210, temp_plateau=60, densite_g_cm3=1.24, ventilateur=255),
     "PETG": dict(temp_buse=235, temp_plateau=80, densite_g_cm3=1.27, ventilateur=128),
+    "PETG transparent Arianeplast": dict(temp_buse=245, temp_plateau=75, densite_g_cm3=1.27,
+                                         ventilateur=51, filament_couleur="#DDEEF2"),
     "ABS":  dict(temp_buse=245, temp_plateau=100, densite_g_cm3=1.04, ventilateur=0),
     "ASA":  dict(temp_buse=250, temp_plateau=100, densite_g_cm3=1.07, ventilateur=0),
     "TPU":  dict(temp_buse=225, temp_plateau=50, densite_g_cm3=1.21, ventilateur=128),
@@ -168,6 +173,8 @@ class Application:
         self.emboitement_choisi = "Aucun"
         self.dentelle = Dentelle(actif=False)
         self.impression = ParametresImpression()
+        self.plaque_base = PL.ReglagePlaque()
+        self.plaques = PL.Plaques()
         self.widgets: dict[tuple[str, str], W.Widget] = {}
 
         # -- construction ---------------------------------------------------------
@@ -177,9 +184,11 @@ class Application:
 
         onglets = W.Tab(children=[self._onglet_forme(), self._onglet_deformations(),
                                   self._onglet_emboitement(), self._onglet_dentelle(),
-                                  self._onglet_impression(), self._onglet_export()])
+                                  self._onglet_impression(), self._onglet_plaques(),
+                                  self._onglet_export()])
         self.onglets = onglets
-        for i, t in enumerate(["Forme", "Déformations", "Emboîtement", "Dentelle", "Impression", "Export"]):
+        for i, t in enumerate(["Forme", "Déformations", "Emboîtement", "Dentelle", "Impression",
+                               "Plaques test", "Export"]):
             onglets.set_title(i, t)
         onglets.layout = W.Layout(width="590px")
 
@@ -446,7 +455,8 @@ class Application:
                            names="value")
 
         def choisir_filament(ch):
-            p.filament_type = p.filament_nom = ch["new"]
+            p.filament_type = ch["new"].split()[0]
+            p.filament_nom = ch["new"]
             appliquer_preset(FILAMENTS[ch["new"]])
 
         filament.observe(choisir_filament, names="value")
@@ -519,6 +529,212 @@ class Application:
             vignettes,
             self.bloc_klipper,
         ], layout=W.Layout(max_height="720px", overflow="auto"))
+
+    def _onglet_plaques(self):
+        W = self.W
+        b, cfg = self.plaque_base, self.plaques
+        lay = W.Layout(width="98%", max_width=LARGEUR)
+
+        def curseur(objet, attr, mini, maxi, pas, description, aide=""):
+            return self._lier(objet, attr, _curseur(attr, getattr(objet, attr),
+                                                    {"min": mini, "max": maxi, "pas": pas, "aide": aide},
+                                                    description), "Plaques", apres=self._maj_plaques)
+
+        self.plaques_infos = W.HTML()
+        filament = W.Button(description="Préréglage PETG transparent Arianeplast", icon="tint",
+                            layout=W.Layout(width="320px"),
+                            tooltip="plateau 75 °C, réglages de base favorables à la transparence")
+        filament.on_click(lambda _: self._executer(self.preset_petg_transparent))
+
+        options_serie = [("aucune", "")] + [(k, k) for k in PL.SERIES]
+        self.series = []
+        lignes_series = []
+        for i in range(2):
+            menu = W.Dropdown(options=options_serie, value="Température buse" if i == 0 else "",
+                              description=f"paramètre testé {i + 1}" if i == 0 else "× paramètre 2",
+                              style=STYLE, layout=lay)
+            valeurs = W.Text(value="", description="valeurs", style=STYLE, layout=lay,
+                             placeholder="ex. 235 240 245 (espaces ou ;)", continuous_update=False)
+
+            def choisir(ch, valeurs=valeurs):
+                if ch["new"]:
+                    valeurs.value = " ".join(f"{v:g}" if isinstance(v, float) else str(v)
+                                             for v in PL.SERIES[ch["new"]][1])
+                else:
+                    valeurs.value = ""
+                self._maj_plaques()
+
+            menu.observe(choisir, names="value")
+            valeurs.observe(lambda _: self._maj_plaques(), names="value")
+            self.series.append((menu, valeurs))
+            lignes_series += [menu, valeurs]
+        self.series[0][1].value = " ".join(str(v) for v in PL.SERIES["Température buse"][1])
+
+        motif = W.ToggleButtons(options=[("longitudinales", "longitudinal"), ("transversales", "transversal"),
+                                         ("croisées", "croise")], value=b.motif, description="lignes",
+                                style={**STYLE, "button_width": "100px"},
+                                layout=W.Layout(flex="0 0 auto", min_height="36px"))
+        self._lier(b, "motif", motif, "Plaques", apres=self._maj_plaques)
+        vent = curseur(b, "ventilateur", 0, 100, 5, "ventilateur (%)")
+        face = W.ToggleButtons(options=[("dessous", "dessous"), ("dessus", "dessus"), ("aucune", "aucune")],
+                               value=cfg.face, description="empreinte",
+                               style={**STYLE, "button_width": "90px"},
+                               layout=W.Layout(flex="0 0 auto", min_height="36px"))
+        self._lier(cfg, "face", face, "Plaques", apres=self._maj_plaques)
+        champs = W.SelectMultiple(options=[("numéro", "numero"), ("T buse", "temp_buse"), ("D débit", "flux"),
+                                           ("V vitesse", "vitesse"), ("F ventilateur", "ventilateur"),
+                                           ("H couche", "hauteur_couche"), ("L largeur", "largeur_ligne"),
+                                           ("M lignes", "motif")],
+                                  value=list(cfg.champs), description="texte gravé", rows=8,
+                                  style=STYLE, layout=lay)
+        champs.observe(lambda ch: (setattr(cfg, "champs", tuple(ch["new"])), self._maj_plaques()),
+                       names="value")
+        self.widgets[("Plaques", "champs")] = champs
+
+        def case(objet, attr, description):
+            return self._lier(objet, attr, W.Checkbox(value=getattr(objet, attr), description=description,
+                                                      indent=False), "Plaques", apres=self._maj_plaques)
+
+        self.plaque_seule = W.Checkbox(value=False, description="un G-code par plaque", indent=False)
+
+        def bouton(texte, icone, action, style=""):
+            bt = W.Button(description=texte, icon=icone, button_style=style, layout=W.Layout(width="220px"))
+            bt.on_click(lambda _: self._executer(action))
+            return bt
+
+        aide = W.HTML(
+            "<small>Les plaques s'impriment <b>l'une après l'autre</b>, chacune à sa température "
+            "(ordre croissant), son débit, sa vitesse, sa ventilation et sa hauteur de couche. "
+            "L'empreinte <b>dessous</b> se lit à travers le PETG transparent, la face du dessus "
+            "reste lisse pour juger la clarté. Machine, plateau, macros et rétraction : onglet "
+            "<b>Impression</b>. La fiche CSV sert à noter chaque plaque.<br>"
+            "Transparence : buse chaude (245–255 °C), lent (20–30 mm/s), débit 1,03–1,08, "
+            "peu de ventilation, couches épaisses, lignes dans un seul sens.</small>")
+        self._maj_plaques()
+        return W.VBox([
+            filament,
+            self._titre("Série à tester"),
+            *lignes_series,
+            self._titre("Réglages de base (paramètres non testés)"),
+            curseur(b, "temp_buse", 200, 280, 1, "buse (°C)"),
+            curseur(b, "flux", 0.8, 1.3, 0.01, "débit"),
+            curseur(b, "vitesse", 5, 120, 1, "vitesse (mm/s)"),
+            vent,
+            curseur(b, "hauteur_couche", 0.08, 0.4, 0.02, "hauteur de couche (mm)"),
+            curseur(b, "largeur_ligne", 0.3, 0.9, 0.01, "largeur de ligne (mm)"),
+            motif,
+            self._titre("Plaque"),
+            curseur(cfg, "largeur", 20, 80, 1, "largeur X (mm)"),
+            curseur(cfg, "longueur", 30, 150, 1, "longueur Y (mm)"),
+            curseur(cfg, "epaisseur", 0.6, 6, 0.2, "épaisseur (mm)"),
+            curseur(cfg, "perimetres", 0, 4, 1, "périmètres"),
+            face,
+            curseur(cfg, "profondeur", 0.2, 2, 0.1, "profondeur (mm)"),
+            curseur(cfg, "taille_pixel", 0.6, 2, 0.05, "pixel du texte (mm)",
+                    "arrondi à un multiple de la largeur de ligne (2 lignes minimum)"),
+            champs,
+            self._titre("Plateau"),
+            curseur(cfg, "ecart", 2, 30, 1, "écart (mm)"),
+            curseur(cfg, "degagement_tete", 1, 20, 0.5, "dégagement tête (mm)",
+                    "hauteur libre sous la tête autour de la buse (conduit de ventilation)"),
+            case(cfg, "trier_temperature", "imprimer par température croissante"),
+            case(cfg, "amorce", "ligne d'amorçage après chaque changement de température"),
+            self.plaque_seule,
+            self._titre("Fichiers (nom : onglet Export)"),
+            W.HBox([bouton("Exporter G-code + fiche", "print", self.exporter_plaques, "success"),
+                    bouton("Aperçu des plaques", "eye", self.voir_plaques)]),
+            W.HBox([bouton("STL (autre trancheur)", "cube", self.exporter_stl_plaques),
+                    bouton("Voir le trajet G-code", "road", self.voir_trajet_plaques)]),
+            self.plaques_infos,
+            aide,
+        ], layout=W.Layout(max_height="720px", overflow="auto"))
+
+    def preset_petg_transparent(self):
+        """Filament PETG transparent Arianeplast + réglages de base pour la transparence."""
+        self.widgets[("Impression", "filament")].value = "PETG transparent Arianeplast"
+        self._suspendu = True
+        try:
+            for attr, v in vars(PL.REGLAGE_TRANSPARENT).items():
+                w = self.widgets.get(("Plaques", attr))
+                if w is not None:
+                    w.value = v
+            for attr in ("retraction", "vitesse_retraction", "vitesse_premiere_couche"):
+                v = PL.PETG_ARIANEPLAST[attr]
+                if ("Impression", attr) in self.widgets:
+                    self.widgets[("Impression", attr)].value = v
+                setattr(self.impression, attr, v)
+        finally:
+            self._suspendu = False
+        self._maj_plaques()
+        print("✔ PETG transparent Arianeplast : buse 245 °C, plateau 75 °C, débit 1,05, 25 mm/s, "
+              "ventilateur 20 %, couches 0,20 mm (vérifiez la plage indiquée sur la bobine)")
+
+    def config_plaques(self) -> "PL.Plaques":
+        """Plaques à imprimer d'après l'onglet (combinaisons des deux séries)."""
+        variations = {}
+        for menu, valeurs in self.series:
+            if not menu.value:
+                continue
+            attr = PL.SERIES[menu.value][0]
+            vals = _lire_valeurs(valeurs.value, attr)
+            if vals:
+                variations[attr] = vals
+        return replace(self.plaques, reglages=PL.plan(self.plaque_base, **variations).reglages)
+
+    def _maj_plaques(self):
+        if not hasattr(self, "plaques_infos"):
+            return
+        try:
+            r = PL.resume(self.config_plaques(), self.impression)
+            lignes = [f"<b>{r['plaques']} plaque{'s' * (r['plaques'] > 1)}</b> · "
+                      f"{r['lots']} plateau{'x' * (r['lots'] > 1)} · texte de la 1re : "
+                      f"<code>{r['etiquettes'][0]}</code>"]
+            lignes += [f"<span style='color:#e8a33a'>⚠ {a}</span>" for a in r["alertes"]]
+            self.plaques_infos.value = "<br>".join(lignes)
+        except Exception as e:
+            self.plaques_infos.value = f"<b style='color:#e8574a'>Erreur : {e}</b>"
+
+    def exporter_plaques(self):
+        cfg = self.config_plaques()
+        chemin = self._chemin(".gcode")
+        res = PL.exporter_plaques(cfg, chemin, self.impression, par_plaque=self.plaque_seule.value)
+        for c, t in res:
+            s = t.stats
+            print(f"✔ G-code : {c}")
+            print(f"   {s['pieces']} plaque(s) · {s['filament_m']} m · {s['masse_g']} g · "
+                  f"≈ {s['duree_min'] // 60} h {s['duree_min'] % 60:02d} min")
+        for a in dict.fromkeys(a for _, t in res for a in t.avertissements):
+            print("   ⚠", a)
+        print("✔ fiche  :", PL.exporter_fiche(cfg, self._chemin(".csv"), self.impression))
+        self.trajet = res[0][1]
+        return res
+
+    def exporter_stl_plaques(self):
+        for c in PL.exporter_stl_plaques(self.config_plaques(), self._chemin(".stl"), self.impression):
+            print("✔ STL    :", c)
+        print("   (réglages de chaque plaque à saisir dans votre trancheur : voir la fiche CSV)")
+
+    def voir_plaques(self):
+        from IPython.display import display
+
+        with self.sortie:
+            self.sortie.clear_output(wait=True)
+            fig = PL.figure_plaques(self.config_plaques(), self.impression, titre=self.nom.value)
+            fig.update_layout(height=640)
+            display(fig)
+        print("   (aperçu des plaques affiché ; modifiez un réglage de forme pour revenir)")
+
+    def voir_trajet_plaques(self):
+        from IPython.display import display
+
+        cfg = self.config_plaques()
+        lots, _ = PL.disposer(cfg, self.impression)
+        _, trajet = PL.generer_gcode_plaques(lots[0], cfg, replace(self.impression, vignettes=()))
+        with self.sortie:
+            self.sortie.clear_output(wait=True)
+            fig = figure_trajet(trajet, titre=f"{self.nom.value} : trajet des plaques")
+            fig.update_layout(height=640)
+            display(fig)
 
     def _maj_visibilite_klipper(self):
         if hasattr(self, "bloc_klipper"):
@@ -801,6 +1017,22 @@ class Application:
         from IPython.display import display
 
         display(self.vue)
+
+
+def _lire_valeurs(texte: str, attr: str) -> list:
+    """« 235 240 245 », « 1,05 ; 1,10 » ou « 1.00, 1.05 » → liste typée selon le paramètre."""
+    import re
+
+    morceaux = [m for m in re.split(r"[;\s]+|,\s+", texte.strip()) if m]
+    if attr == "motif":
+        inconnus = [m for m in morceaux if m not in PL.MOTIFS]
+        if inconnus:
+            raise ValueError(f"lignes inconnues : {', '.join(inconnus)} ({' | '.join(PL.MOTIFS)})")
+        return morceaux
+    vals = [float(m.replace(",", ".")) for m in morceaux]
+    if attr in ("temp_buse", "ventilateur"):
+        return [int(round(v)) for v in vals]
+    return vals
 
 
 def application(dossier="sorties") -> Application:

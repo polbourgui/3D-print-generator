@@ -280,6 +280,96 @@ def _duree_texte(secondes: float) -> str:
     return " ".join(morceaux + [f"{s}s"])
 
 
+def _demarrer(w: _Ecrivain, mn, mx):
+    """Démarrage : macro (ou chauffe + G28), maillage, unités, purge.
+
+    ``mn``, ``mx`` : boîte des pièces (la purge interne longe leur bord gauche).
+    """
+    p = w.p
+    klipper = p.firmware == "klipper"
+    w("M107")
+    if klipper and p.macro_debut:
+        w(p.macro_debut.format(**vars(p)))
+    else:
+        w(f"M140 S{p.temp_plateau}")
+        w(f"M104 S{p.temp_buse}")
+        w(f"M190 S{p.temp_plateau}")
+        w(f"M109 S{p.temp_buse}")
+        w("G28")
+    if klipper and p.maillage_adaptatif:
+        w("BED_MESH_CALIBRATE ADAPTIVE=1")
+    w("G21 ; millimetres")
+    w("G90 ; coordonnees absolues")
+    w("M82 ; extrusion absolue")
+    w("G92 E0")
+    if p.purge == "interne" or (p.purge and not klipper):
+        w("; ligne de purge")
+        x0 = max(mn[0] - 8, 2.0)
+        w.deplacer([x0, max(mn[1], 2.0), 0.3])
+        w.extruder(np.array([[x0, max(mn[1], 2.0), 0.3], [x0, min(mx[1], p.plateau[1] - 2), 0.3]]),
+                   p.vitesse_premiere_couche, "purge", deplacer=False)
+        w._retracter()
+    elif p.purge:
+        w(p.purge)                       # macro KAMP : LINE_PURGE, VORON_PURGE…
+        w("G90")
+        w("M82")
+        w("G92 E0")
+
+
+def _terminer(w: _Ecrivain, nb_couches: int, max_z: float, meta_sup: dict | None = None):
+    """Fin d'impression + métadonnées Moonraker (format PrusaSlicer).
+
+    Renvoie (masse en g, durée estimée en s).
+    """
+    p = w.p
+    klipper = p.firmware == "klipper"
+    h = p.hauteur_couche
+    w._retracter()
+    if klipper and p.macro_fin:
+        w(p.macro_fin.format(**vars(p)))
+    else:
+        w("G91")
+        w("G1 Z10 F600")
+        w("G90")
+        w(f"G0 X{min(10.0, p.plateau[0]):.1f} Y{p.plateau[1] - 10:.1f} F{p.vitesse_deplacement * 60:.0f}")
+        w("M104 S0")
+        w("M140 S0")
+        w("M107")
+        w("M84")
+
+    volume_cm3 = w.filament * np.pi * (p.diametre_filament / 2) ** 2 / 1000
+    masse = volume_cm3 * p.densite_g_cm3
+    duree_s = w.temps * 1.15   # +15 % pour les accélérations
+
+    # -- métadonnées (format PrusaSlicer, lu par Moonraker en fin de fichier) ----
+    w("")
+    w(f"; filament used [mm] = {w.filament:.2f}")
+    w(f"; filament used [cm3] = {volume_cm3:.2f}")
+    w(f"; filament used [g] = {masse:.2f}")
+    w(f"; total filament used [g] = {masse:.2f}")
+    w(f"; estimated printing time (normal mode) = {_duree_texte(duree_s)}")
+    w(f"; total layers count = {nb_couches}")
+    w(f"; max_z_height = {max_z:.3f}")
+    w("")
+    w("; generateur_formes_config = begin")
+    meta = {
+        "layer_height": h, "first_layer_height": h, "nozzle_diameter": p.diametre_buse,
+        "filament_diameter": p.diametre_filament, "filament_density": p.densite_g_cm3,
+        "filament_type": p.filament_type, "filament_settings_id": f'"{p.filament_nom}"',
+        "filament_colour": p.filament_couleur, "extruder_colour": p.filament_couleur,
+        "temperature": p.temp_buse, "first_layer_temperature": p.temp_buse,
+        "bed_temperature": p.temp_plateau, "first_layer_bed_temperature": p.temp_plateau,
+        "spiral_vase": 0, "extrusion_width": p.largeur_ligne,
+        "bed_shape": f"0x0,{p.plateau[0]:g}x0,{p.plateau[0]:g}x{p.plateau[1]:g},0x{p.plateau[1]:g}",
+        "max_print_height": p.hauteur_max, "gcode_flavor": p.firmware,
+        **(meta_sup or {}),
+    }
+    for cle, val in meta.items():
+        w(f"; {cle} = {val}")
+    w("; generateur_formes_config = end")
+    return masse, duree_s
+
+
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------
@@ -380,34 +470,7 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
     if klipper:
         w(f"SET_PRINT_STATS_INFO TOTAL_LAYER={nb_couches}")
 
-    # -- démarrage ---------------------------------------------------------------
-    w("M107")
-    if klipper and p.macro_debut:
-        w(p.macro_debut.format(**vars(p)))
-    else:
-        w(f"M140 S{p.temp_plateau}")
-        w(f"M104 S{p.temp_buse}")
-        w(f"M190 S{p.temp_plateau}")
-        w(f"M109 S{p.temp_buse}")
-        w("G28")
-    if klipper and p.maillage_adaptatif:
-        w("BED_MESH_CALIBRATE ADAPTIVE=1")
-    w("G21 ; millimetres")
-    w("G90 ; coordonnees absolues")
-    w("M82 ; extrusion absolue")
-    w("G92 E0")
-    if p.purge == "interne" or (p.purge and not klipper):
-        w("; ligne de purge")
-        x0 = max(mn[0] - 8, 2.0)
-        w.deplacer([x0, max(mn[1], 2.0), 0.3])
-        w.extruder(np.array([[x0, max(mn[1], 2.0), 0.3], [x0, min(mx[1], p.plateau[1] - 2), 0.3]]),
-                   p.vitesse_premiere_couche, "purge", deplacer=False)
-        w._retracter()
-    elif p.purge:
-        w(p.purge)                       # macro KAMP : LINE_PURGE, VORON_PURGE…
-        w("G90")
-        w("M82")
-        w("G92 E0")
+    _demarrer(w, mn, mx)
 
     # -- couches ---------------------------------------------------------------
     plusieurs = len(pieces) > 1
@@ -470,49 +533,8 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
                     w._retracter()
                 w(f"EXCLUDE_OBJECT_END NAME={n}")
 
-    # -- fin -----------------------------------------------------------------------
-    w._retracter()
-    if klipper and p.macro_fin:
-        w(p.macro_fin.format(**vars(p)))
-    else:
-        w("G91")
-        w("G1 Z10 F600")
-        w("G90")
-        w(f"G0 X{min(10.0, p.plateau[0]):.1f} Y{p.plateau[1] - 10:.1f} F{p.vitesse_deplacement * 60:.0f}")
-        w("M104 S0")
-        w("M140 S0")
-        w("M107")
-        w("M84")
-
-    volume_cm3 = w.filament * np.pi * (p.diametre_filament / 2) ** 2 / 1000
-    masse = volume_cm3 * p.densite_g_cm3
-    duree_s = w.temps * 1.15   # +15 % pour les accélérations
-
-    # -- métadonnées (format PrusaSlicer, lu par Moonraker en fin de fichier) ----
-    w("")
-    w(f"; filament used [mm] = {w.filament:.2f}")
-    w(f"; filament used [cm3] = {volume_cm3:.2f}")
-    w(f"; filament used [g] = {masse:.2f}")
-    w(f"; total filament used [g] = {masse:.2f}")
-    w(f"; estimated printing time (normal mode) = {_duree_texte(duree_s)}")
-    w(f"; total layers count = {nb_couches}")
-    w(f"; max_z_height = {(max(hauts) if mode == 'dentelle' else nb_couches * h):.3f}")
-    w("")
-    w("; generateur_formes_config = begin")
-    meta = {
-        "layer_height": h, "first_layer_height": h, "nozzle_diameter": p.diametre_buse,
-        "filament_diameter": p.diametre_filament, "filament_density": p.densite_g_cm3,
-        "filament_type": p.filament_type, "filament_settings_id": f'"{p.filament_nom}"',
-        "filament_colour": p.filament_couleur, "extruder_colour": p.filament_couleur,
-        "temperature": p.temp_buse, "first_layer_temperature": p.temp_buse,
-        "bed_temperature": p.temp_plateau, "first_layer_bed_temperature": p.temp_plateau,
-        "spiral_vase": int(mode == "spirale"), "extrusion_width": p.largeur_ligne,
-        "bed_shape": f"0x0,{p.plateau[0]:g}x0,{p.plateau[0]:g}x{p.plateau[1]:g},0x{p.plateau[1]:g}",
-        "max_print_height": p.hauteur_max, "gcode_flavor": p.firmware,
-    }
-    for cle, val in meta.items():
-        w(f"; {cle} = {val}")
-    w("; generateur_formes_config = end")
+    masse, duree_s = _terminer(w, nb_couches, max(hauts) if mode == "dentelle" else nb_couches * h,
+                               {"spiral_vase": int(mode == "spirale")})
 
     w.trajet.stats = {
         "mode": mode,

@@ -173,3 +173,19 @@ def test_plaques_marlin_refroidissement():
 def test_reglages_dict():
     cfg = Plaques([{"temp_buse": 250}])
     assert isinstance(cfg.reglages[0], ReglagePlaque) and cfg.reglages[0].temp_buse == 250
+
+
+def test_application_plaques_en_petg_par_defaut(tmp_path):
+    """Sans toucher au préréglage, les plaques sont en PETG même si la forme est en PLA."""
+    pytest.importorskip("ipywidgets")
+    from formes.application import Application
+
+    app = Application(dossier=tmp_path)
+    assert app.impression.filament_type == "PLA"
+    app.nom_plaques.value = "essai"
+    app.exporter_plaques()
+    texte = (tmp_path / "essai.gcode").read_text(encoding="utf-8")
+    assert "plaques de test PETG transparent Arianeplast" in texte
+    assert "; filament_type = PETG" in texte and "; bed_temperature = 75" in texte
+    assert "BED=75" in texte and "PLA" not in texte
+    assert app.impression.filament_type == "PLA"          # la forme garde son filament

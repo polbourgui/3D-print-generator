@@ -35,7 +35,7 @@ from __future__ import annotations
 import csv
 import itertools
 import struct
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -57,6 +57,22 @@ PETG_ARIANEPLAST = dict(
     temp_buse=245, temp_plateau=75, densite_g_cm3=1.27, retraction=1.0, vitesse_retraction=30.0,
     vitesse_premiere_couche=15.0, vitesse_deplacement=150.0,
 )
+
+
+
+@dataclass
+class FilamentPlaque:
+    """Filament des plaques : remplace celui des réglages machine (en-tête, plateau, masse)."""
+
+    filament_nom: str = "PETG transparent Arianeplast"
+    filament_type: str = "PETG"
+    filament_couleur: str = "#DDEEF2"
+    temp_plateau: int = 75
+    densite_g_cm3: float = 1.27
+
+    def appliquer(self, p: ParametresImpression) -> ParametresImpression:
+        return replace(p, **asdict(self))
+
 
 MOTIFS = ("longitudinal", "transversal", "croise")
 CODES_MOTIF = {"longitudinal": "ML", "transversal": "MT", "croise": "MX"}
@@ -729,7 +745,7 @@ def resume(cfg: Plaques, p: ParametresImpression | None = None) -> dict:
 
 
 __all__ = [
-    "PETG_ARIANEPLAST", "REGLAGE_TRANSPARENT", "SERIES", "MOTIFS", "LEGENDE",
+    "PETG_ARIANEPLAST", "REGLAGE_TRANSPARENT", "FilamentPlaque", "SERIES", "MOTIFS", "LEGENDE",
     "ReglagePlaque", "Plaques", "Plaque", "plan", "serie", "disposer",
     "generer_gcode_plaques", "exporter_plaques", "exporter_stl_plaques", "exporter_fiche",
     "figure_plaques", "resume", "ParametresImpression",

@@ -180,6 +180,7 @@ class Application:
         self.impression = ParametresImpression()
         self.plaque_base = PL.ReglagePlaque()
         self.plaques = PL.Plaques()
+        self.filament_plaques = PL.FilamentPlaque()
         self.widgets: dict[tuple[str, str], W.Widget] = {}
 
         # -- construction ---------------------------------------------------------
@@ -553,6 +554,9 @@ class Application:
                             layout=W.Layout(width="320px"),
                             tooltip="plateau 75 °C, réglages de base favorables à la transparence")
         filament.on_click(lambda _: self._executer(self.preset_petg_transparent, self.journal_plaques))
+        nom_filament = W.Text(value=self.filament_plaques.filament_nom, description="filament",
+                              style=STYLE, layout=lay, continuous_update=False)
+        self._lier(self.filament_plaques, "filament_nom", nom_filament, "Plaques")
         self.nom_plaques = W.Text(value=self._nom_plaques_auto(), description="nom des fichiers",
                                   style=STYLE, layout=lay)
         self.journal_plaques = W.Output(layout=W.Layout(width=LARGEUR, max_height="220px", overflow="auto",
@@ -646,6 +650,11 @@ class Application:
             W.HBox([bouton("Voir le trajet G-code", "road", self.voir_trajet_plaques, "", "calcul du trajet"),
                     bouton("Ouvrir le dossier", "folder-open", self.ouvrir_dossier)]),
             self.journal_plaques,
+            self._titre("Filament des plaques"),
+            nom_filament,
+            curseur(self.filament_plaques, "temp_plateau", 0, 120, 5, "plateau (°C)"),
+            W.HTML("<small>Indépendant du filament de l'onglet Impression, qui ne règle ici que la "
+                   "machine (plateau, macros, rétraction, vitesses de déplacement).</small>"),
             self._titre("Série à tester"),
             *lignes_series,
             self._titre("Réglages de base (paramètres non testés)"),
@@ -678,23 +687,27 @@ class Application:
 
     def preset_petg_transparent(self):
         """Filament PETG transparent Arianeplast + réglages de base pour la transparence."""
-        self.widgets[("Impression", "filament")].value = "PETG transparent Arianeplast"
         self._suspendu = True
         try:
+            defaut = PL.FilamentPlaque()
+            for attr, v in vars(defaut).items():
+                setattr(self.filament_plaques, attr, v)
+                w = self.widgets.get(("Plaques", attr))
+                if w is not None:
+                    w.value = v
             for attr, v in vars(PL.REGLAGE_TRANSPARENT).items():
                 w = self.widgets.get(("Plaques", attr))
                 if w is not None:
                     w.value = v
-            for attr in ("retraction", "vitesse_retraction", "vitesse_premiere_couche"):
-                v = PL.PETG_ARIANEPLAST[attr]
-                if ("Impression", attr) in self.widgets:
-                    self.widgets[("Impression", attr)].value = v
-                setattr(self.impression, attr, v)
         finally:
             self._suspendu = False
         self.rafraichir()
         print("✔ PETG transparent Arianeplast : buse 245 °C, plateau 75 °C, débit 1,05, 25 mm/s, "
               "ventilateur 20 %, couches 0,20 mm (vérifiez la plage indiquée sur la bobine)")
+
+    def machine_plaques(self) -> ParametresImpression:
+        """Machine de l'onglet Impression + filament propre aux plaques (PETG par défaut)."""
+        return self.filament_plaques.appliquer(self.impression)
 
     def config_plaques(self) -> "PL.Plaques":
         """Plaques à imprimer d'après l'onglet (combinaisons des deux séries)."""
@@ -712,7 +725,7 @@ class Application:
         if not hasattr(self, "plaques_infos"):
             return
         try:
-            r = PL.resume(self.config_plaques(), self.impression)
+            r = PL.resume(self.config_plaques(), self.machine_plaques())
             lignes = [f"<b>{r['plaques']} plaque{'s' * (r['plaques'] > 1)}</b> · "
                       f"{r['lots']} plateau{'x' * (r['lots'] > 1)} · texte de la 1re : "
                       f"<code>{r['etiquettes'][0]}</code>"]
@@ -731,7 +744,7 @@ class Application:
     def exporter_plaques(self):
         cfg = self.config_plaques()
         chemin = self._chemin_plaques(".gcode")
-        res = PL.exporter_plaques(cfg, chemin, self.impression, par_plaque=self.plaque_seule.value)
+        res = PL.exporter_plaques(cfg, chemin, self.machine_plaques(), par_plaque=self.plaque_seule.value)
         for c, t in res:
             s = t.stats
             print(f"✔ G-code : {c}")
@@ -739,12 +752,12 @@ class Application:
                   f"≈ {s['duree_min'] // 60} h {s['duree_min'] % 60:02d} min")
         for a in dict.fromkeys(a for _, t in res for a in t.avertissements):
             print("   ⚠", a)
-        print("✔ fiche  :", PL.exporter_fiche(cfg, self._chemin_plaques(".csv"), self.impression))
+        print("✔ fiche  :", PL.exporter_fiche(cfg, self._chemin_plaques(".csv"), self.machine_plaques()))
         self.trajet = res[0][1]
         return res
 
     def exporter_stl_plaques(self):
-        for c in PL.exporter_stl_plaques(self.config_plaques(), self._chemin_plaques(".stl"), self.impression):
+        for c in PL.exporter_stl_plaques(self.config_plaques(), self._chemin_plaques(".stl"), self.machine_plaques()):
             print("✔ STL    :", c)
         print("   (réglages de chaque plaque à saisir dans votre trancheur : voir la fiche CSV)")
 
@@ -784,7 +797,7 @@ class Application:
         self._maj_plaques()
         with self.sortie:
             self.sortie.clear_output(wait=True)
-            fig = PL.figure_plaques(self.config_plaques(), self.impression, titre=self.nom_plaques.value)
+            fig = PL.figure_plaques(self.config_plaques(), self.machine_plaques(), titre=self.nom_plaques.value)
             fig.update_layout(height=640)
             self._derniere_figure = fig
             display(fig)
@@ -794,8 +807,8 @@ class Application:
         from IPython.display import display
 
         cfg = self.config_plaques()
-        lots, _ = PL.disposer(cfg, self.impression)
-        _, trajet = PL.generer_gcode_plaques(lots[0], cfg, replace(self.impression, vignettes=()))
+        lots, _ = PL.disposer(cfg, self.machine_plaques())
+        _, trajet = PL.generer_gcode_plaques(lots[0], cfg, replace(self.machine_plaques(), vignettes=()))
         with self.sortie:
             self.sortie.clear_output(wait=True)
             fig = figure_trajet(trajet, titre=f"{self.nom_plaques.value} : trajet des plaques")
@@ -938,7 +951,7 @@ class Application:
 
     def exporter_html(self):
         if self._sur_plaques():
-            fig = PL.figure_plaques(self.config_plaques(), self.impression, titre=self.nom_plaques.value)
+            fig = PL.figure_plaques(self.config_plaques(), self.machine_plaques(), titre=self.nom_plaques.value)
             print("✔ vue 3D :", exporter_html(fig, self._chemin_plaques(".html")))
             return
         a = self.generateur().generer()

@@ -57,15 +57,42 @@ IMPRIMANTES = {
     "Prusa MK3S / MK4 (Marlin)": dict(plateau=(250.0, 210.0), hauteur_max=210.0, firmware="marlin", vitesse_z_max=12.0),
 }
 
+# Profils de filament (page Réglages › Filament). Vérifiez les plages sur l'étiquette de la bobine.
 FILAMENTS = {
-    "PLA":  dict(temp_buse=210, temp_plateau=60, densite_g_cm3=1.24, ventilateur=255),
-    "PETG": dict(temp_buse=235, temp_plateau=80, densite_g_cm3=1.27, ventilateur=128),
-    "PETG transparent Arianeplast": dict(temp_buse=245, temp_plateau=75, densite_g_cm3=1.27,
-                                         ventilateur=51, filament_couleur="#DDEEF2"),
-    "ABS":  dict(temp_buse=245, temp_plateau=100, densite_g_cm3=1.04, ventilateur=0),
-    "ASA":  dict(temp_buse=250, temp_plateau=100, densite_g_cm3=1.07, ventilateur=0),
-    "TPU":  dict(temp_buse=225, temp_plateau=50, densite_g_cm3=1.21, ventilateur=128),
+    "PLA": dict(filament_type="PLA", filament_couleur="#E8B04A", densite_g_cm3=1.24, cout_kg=20.0,
+                temp_buse=210, temp_buse_premiere_couche=215, temp_plateau=60, temp_plateau_premiere_couche=60,
+                ventilateur=255, couches_sans_ventilateur=1, flux=1.0,
+                retraction=1.0, vitesse_retraction=35.0, z_hop=0.0),
+    "PETG": dict(filament_type="PETG", filament_couleur="#4AA3E8", densite_g_cm3=1.27, cout_kg=22.0,
+                 temp_buse=235, temp_buse_premiere_couche=240, temp_plateau=80, temp_plateau_premiere_couche=80,
+                 ventilateur=128, couches_sans_ventilateur=3, flux=1.0,
+                 retraction=1.0, vitesse_retraction=30.0, z_hop=0.2),
+    "PETG transparent Arianeplast": dict(
+        filament_type="PETG", filament_couleur="#DDEEF2", densite_g_cm3=1.27, cout_kg=22.0,
+        temp_buse=245, temp_buse_premiere_couche=245, temp_plateau=75, temp_plateau_premiere_couche=80,
+        ventilateur=51, couches_sans_ventilateur=3, flux=1.05,
+        retraction=1.0, vitesse_retraction=30.0, z_hop=0.2),
+    "ABS": dict(filament_type="ABS", filament_couleur="#E8574A", densite_g_cm3=1.04, cout_kg=20.0,
+                temp_buse=245, temp_buse_premiere_couche=250, temp_plateau=100, temp_plateau_premiere_couche=105,
+                ventilateur=0, couches_sans_ventilateur=3, flux=1.0,
+                retraction=0.8, vitesse_retraction=35.0, z_hop=0.0),
+    "ASA": dict(filament_type="ASA", filament_couleur="#9AA0A6", densite_g_cm3=1.07, cout_kg=25.0,
+                temp_buse=250, temp_buse_premiere_couche=255, temp_plateau=100, temp_plateau_premiere_couche=105,
+                ventilateur=0, couches_sans_ventilateur=3, flux=1.0,
+                retraction=0.8, vitesse_retraction=35.0, z_hop=0.0),
+    "TPU": dict(filament_type="TPU", filament_couleur="#5FC28A", densite_g_cm3=1.21, cout_kg=30.0,
+                temp_buse=225, temp_buse_premiere_couche=225, temp_plateau=50, temp_plateau_premiere_couche=50,
+                ventilateur=128, couches_sans_ventilateur=1, flux=1.0,
+                retraction=0.5, vitesse_retraction=20.0, z_hop=0.0),
 }
+
+# paramètres qui appartiennent au profil de filament
+CHAMPS_FILAMENT = (
+    "filament_nom", "filament_type", "filament_couleur", "diametre_filament", "densite_g_cm3", "cout_kg",
+    "temp_buse", "temp_buse_premiere_couche", "temp_plateau", "temp_plateau_premiere_couche",
+    "ventilateur", "couches_sans_ventilateur", "flux",
+    "retraction", "vitesse_retraction", "retraction_min_deplacement", "z_hop",
+)
 
 MACROS_DEBUT = {
     "PRINT_START BED=… EXTRUDER=…": "PRINT_START BED={temp_plateau} EXTRUDER={temp_buse}",
@@ -114,6 +141,7 @@ DESCRIPTIONS = {
 
 LIBELLES = {"a poser": "à poser", "alveoles": "alvéoles"}
 
+PL_FILAMENT = "PETG transparent Arianeplast"   # profil du préréglage des plaques
 ONGLET_PLAQUES = 5        # position de l'onglet « Plaques test »
 ONGLETS_FORME = (0, 1, 2, 3)  # Forme, Déformations, Emboîtement, Dentelle
 
@@ -177,10 +205,13 @@ class Application:
         self.emboitements = {cls.__name__: cls() for cls in TOUS}
         self.emboitement_choisi = "Aucun"
         self.dentelle = Dentelle(actif=False)
-        self.impression = ParametresImpression()
+        self.impression = ParametresImpression(filament_nom="PLA", **FILAMENTS["PLA"])
+        self.impression.hauteur_premiere_couche = self.impression.hauteur_couche
+        memorise = self._filament_memorise()        # filament de la dernière session
+        for attr, v in (memorise or {}).items():
+            setattr(self.impression, attr, v)
         self.plaque_base = PL.ReglagePlaque()
         self.plaques = PL.Plaques()
-        self.filament_plaques = PL.FilamentPlaque()
         self.widgets: dict[tuple[str, str], W.Widget] = {}
 
         # -- construction ---------------------------------------------------------
@@ -190,11 +221,11 @@ class Application:
 
         onglets = W.Tab(children=[self._onglet_forme(), self._onglet_deformations(),
                                   self._onglet_emboitement(), self._onglet_dentelle(),
-                                  self._onglet_impression(), self._onglet_plaques(),
+                                  self._onglet_reglages(), self._onglet_plaques(),
                                   self._onglet_export()])
         self.onglets = onglets
-        for i, t in enumerate(["Forme", "Déformations", "Emboîtement", "Dentelle", "Impression",
-                               "Plaques test", "Export"]):
+        for i, t in enumerate(["Forme", "Déformations", "Emboîtement", "Dentelle", "Réglages",
+                               "Plaques", "Export"]):
             onglets.set_title(i, t)
         onglets.layout = W.Layout(width="590px")
         # la vue suit l'onglet : plaques de test sur « Plaques test », forme sur les onglets de
@@ -400,7 +431,8 @@ class Application:
         print("🧪 pièce de calibration chargée : imprimez-la, puis gardez l'étage le plus haut "
               "dont les brins sont restés droits et soudés à l'anneau")
 
-    def _onglet_impression(self):
+    def _onglet_reglages(self):
+        """Réglages façon trancheur : trois pages Imprimante, Filament, Impression."""
         W = self.W
         p = self.impression
         lay = W.Layout(width=LARGEUR)
@@ -429,10 +461,11 @@ class Application:
             return self._lier(p, attr, W.Checkbox(value=getattr(p, attr), description=description,
                                                   indent=False), "Impression")
 
-        # préréglages : ils modifient les curseurs, qui modifient les paramètres
-        imprimante = menu("imprimante", list(IMPRIMANTES), "Personnalisée", "imprimante")
-        filament = menu("filament", list(FILAMENTS), "PLA", "filament")
+        def page(*enfants):
+            return _defilant(W.VBox(list(enfants), layout=W.Layout(max_height="680px", overflow="auto")))
 
+        # ------------------------------------------------------------ Imprimante
+        imprimante = menu("imprimante", list(IMPRIMANTES), "Personnalisée", "imprimante")
         plateau_x = W.IntSlider(value=int(p.plateau[0]), min=80, max=500, step=5, description="plateau X (mm)",
                                 style=STYLE, layout=lay, continuous_update=False)
         plateau_y = W.IntSlider(value=int(p.plateau[1]), min=80, max=500, step=5, description="plateau Y (mm)",
@@ -447,44 +480,13 @@ class Application:
 
         plateau_x.observe(changer_plateau, names="value")
         plateau_y.observe(changer_plateau, names="value")
-
-        def appliquer_preset(valeurs):
-            self._suspendu = True
-            for attr, v in valeurs.items():
-                if attr == "plateau":
-                    plateau_x.value, plateau_y.value = int(v[0]), int(v[1])
-                elif ("Impression", attr) in self.widgets:
-                    self.widgets[("Impression", attr)].value = v
-                else:
-                    setattr(p, attr, v)
-            self._suspendu = False
-            self.rafraichir()
-
-        imprimante.observe(lambda ch: IMPRIMANTES[ch["new"]] and appliquer_preset(IMPRIMANTES[ch["new"]]),
+        imprimante.observe(lambda ch: IMPRIMANTES[ch["new"]] and self._appliquer(IMPRIMANTES[ch["new"]]),
                            names="value")
-
-        def choisir_filament(ch):
-            p.filament_type = ch["new"].split()[0]
-            p.filament_nom = ch["new"]
-            appliquer_preset(FILAMENTS[ch["new"]])
-
-        filament.observe(choisir_filament, names="value")
-
         buse = W.Dropdown(options=[0.2, 0.25, 0.4, 0.5, 0.6, 0.8, 1.0], value=p.diametre_buse,
                           description="buse (mm)", style=STYLE, layout=lay)
         self._lier(p, "diametre_buse", buse, "Impression",
                    apres=lambda: setattr(self.widgets[("Impression", "largeur_ligne")], "value",
                                          round(1.125 * p.diametre_buse, 2)))
-
-        vent = W.IntSlider(value=round(p.ventilateur / 2.55), min=0, max=100, step=5,
-                           description="ventilateur (%)", style=STYLE, layout=lay, continuous_update=False)
-        self.widgets[("Impression", "ventilateur_pct")] = vent
-        vent.observe(lambda ch: setattr(p, "ventilateur", round(ch["new"] * 2.55)), names="value")
-
-        couleur = W.ColorPicker(value=p.filament_couleur, description="couleur (Mainsail)",
-                                style=STYLE, layout=lay)
-        self._lier(p, "filament_couleur", couleur, "Impression")
-
         macro_debut = menu("macro_debut", MACROS_DEBUT, p.macro_debut, "macro de début", attr="macro_debut")
         macro_fin = menu("macro_fin", MACROS_FIN, p.macro_fin, "macro de fin", attr="macro_fin")
         purge = menu("purge", PURGES, p.purge, "purge", attr="purge")
@@ -495,49 +497,207 @@ class Application:
             case("exclude_object", "exclude object (annuler une pièce depuis Mainsail)"),
             case("retraction_firmware", "rétraction firmware (G10 / G11)"),
             W.HTML("<small>Si PRINT_START fait déjà le maillage et la purge : décochez le maillage "
-                   "et choisissez « Aucune » pour la purge.</small>"),
+                   "et choisissez « Aucune » pour la purge. La macro reçoit les températures de la "
+                   "1re couche.</small>"),
         ])
-
         vignettes = W.Checkbox(value=bool(p.vignettes), description="vignettes d'aperçu (Mainsail)",
                                indent=False)
         self.widgets[("Impression", "vignettes_actives")] = vignettes
         vignettes.observe(lambda ch: setattr(p, "vignettes", ((32, 32), (300, 300)) if ch["new"] else ()),
                           names="value")
-
-        return W.VBox([
-            self._titre("Machine"),
+        page_imprimante = page(
             imprimante,
             bascule("firmware", ["klipper", "marlin"], "firmware", apres=self._maj_visibilite_klipper),
+            self._titre("Volume d'impression"),
             plateau_x, plateau_y,
             curseur("hauteur_max", 50, 600, 5, "hauteur max (mm)"),
-            curseur("vitesse_z_max", 2, 40, 1, "vitesse Z max (mm/s)",
-                    "limite de l'axe Z, utilisée par la dentelle (max_z_velocity de Klipper)"),
+            self._titre("Extrudeur et axes"),
             buse,
+            curseur("vitesse_z_max", 2, 40, 1, "vitesse Z max (mm/s)",
+                    "limite de l'axe Z (max_z_velocity de Klipper), utilisée par la dentelle et le z-hop"),
+            vignettes,
+            self.bloc_klipper,
+        )
+
+        # ------------------------------------------------------------ Filament
+        profils = self._liste_filaments()
+        self.choix_filament = W.Dropdown(options=profils, value=p.filament_nom
+                                         if p.filament_nom in [n for _, n in profils] else None,
+                                         description="profil", style=STYLE, layout=lay)
+        self.choix_filament.observe(lambda ch: ch["new"] and self.charger_filament(ch["new"]), names="value")
+        enregistrer = W.Button(description="Enregistrer le profil", icon="save", layout=W.Layout(width="200px"),
+                               tooltip="sous le nom ci-dessous, dans sorties/reglages/filaments")
+        enregistrer.on_click(lambda _: self._executer(self.enregistrer_filament, self.journal_filament))
+        self.journal_filament = W.Output(layout=W.Layout(width=LARGEUR))
+        nom = W.Text(value=p.filament_nom, description="nom", style=STYLE, layout=lay, continuous_update=False)
+        self._lier(p, "filament_nom", nom, "Impression")
+        types = ["PLA", "PETG", "ABS", "ASA", "TPU", "PC", "PA", "HIPS", "PVA", "autre"]
+        type_ = W.Dropdown(options=types if p.filament_type in types else types + [p.filament_type],
+                           value=p.filament_type, description="type", style=STYLE, layout=lay)
+        self._lier(p, "filament_type", type_, "Impression")
+        couleur = W.ColorPicker(value=p.filament_couleur, description="couleur (Mainsail)",
+                                style=STYLE, layout=lay)
+        self._lier(p, "filament_couleur", couleur, "Impression")
+        vent = W.IntSlider(value=round(p.ventilateur / 2.55), min=0, max=100, step=5,
+                           description="ventilateur (%)", style=STYLE, layout=lay, continuous_update=False)
+        self.widgets[("Impression", "ventilateur_pct")] = vent
+        vent.observe(lambda ch: setattr(p, "ventilateur", round(ch["new"] * 2.55)), names="value")
+        page_filament = page(
+            W.HBox([self.choix_filament]), enregistrer, self.journal_filament,
             self._titre("Filament"),
-            filament,
-            curseur("temp_buse", 170, 300, 5, "buse (°C)"),
-            curseur("temp_plateau", 0, 120, 5, "plateau (°C)"),
-            couleur,
+            nom, type_, couleur,
             self._lier(p, "diametre_filament",
                        W.Dropdown(options=[1.75, 2.85], value=p.diametre_filament, description="Ø filament (mm)",
                                   style=STYLE, layout=lay), "Impression"),
-            self._titre("Tranchage"),
+            curseur("densite_g_cm3", 0.9, 2.0, 0.01, "densité (g/cm³)"),
+            curseur("cout_kg", 0, 100, 1, "prix (€/kg)"),
+            self._titre("Températures"),
+            curseur("temp_buse_premiere_couche", 150, 320, 1, "buse 1re couche (°C)"),
+            curseur("temp_buse", 150, 320, 1, "buse (°C)"),
+            curseur("temp_plateau_premiere_couche", 0, 130, 1, "plateau 1re couche (°C)"),
+            curseur("temp_plateau", 0, 130, 1, "plateau (°C)"),
+            self._titre("Refroidissement"),
+            vent,
+            curseur("couches_sans_ventilateur", 0, 10, 1, "couches sans ventil.",
+                    "le ventilateur démarre après ce nombre de couches"),
+            self._titre("Débit et rétraction"),
+            curseur("flux", 0.8, 1.2, 0.01, "multiplicateur de débit"),
+            curseur("retraction", 0, 8, 0.1, "rétraction (mm)"),
+            curseur("vitesse_retraction", 5, 80, 1, "vitesse rétraction (mm/s)"),
+            curseur("retraction_min_deplacement", 0, 10, 0.5, "rétracter au-delà de (mm)",
+                    "pas de rétraction pour les déplacements plus courts"),
+            curseur("z_hop", 0, 2, 0.05, "levée en déplacement (mm)", "z-hop pendant les déplacements rétractés"),
+            W.HTML("<small>Le profil en cours est repris au prochain lancement. Les profils "
+                   "enregistrés apparaissent dans la liste (★).</small>"),
+        )
+
+        # ------------------------------------------------------------ Impression
+        page_impression = page(
+            self._titre("Mode"),
             bascule("mode", ["spirale", "couches"], "mode"),
             W.HTML("<small>spirale = mode vase (une pièce, sans couture) ; plusieurs pièces → couches "
                    "automatiquement.</small>"),
+            self._titre("Couches et lignes"),
+            curseur("hauteur_premiere_couche", 0.08, 0.6, 0.02, "hauteur 1re couche (mm)"),
             curseur("hauteur_couche", 0.08, 0.6, 0.02, "hauteur de couche (mm)"),
             curseur("largeur_ligne", 0.2, 1.4, 0.01, "largeur de ligne (mm)"),
             curseur("couches_fond", 0, 15, 1, "couches de fond"),
-            curseur("flux", 0.8, 1.2, 0.01, "flux"),
-            curseur("vitesse", 5, 150, 1, "vitesse parois (mm/s)"),
-            curseur("vitesse_premiere_couche", 5, 60, 1, "vitesse 1re couche"),
-            curseur("vitesse_remplissage", 5, 200, 1, "vitesse fond (mm/s)"),
-            curseur("vitesse_deplacement", 30, 500, 10, "vitesse déplacements"),
-            curseur("retraction", 0, 8, 0.1, "rétraction (mm)"),
-            vent,
-            vignettes,
-            self.bloc_klipper,
-        ], layout=W.Layout(max_height="720px", overflow="auto"))
+            self._titre("Vitesses (mm/s)"),
+            curseur("vitesse_premiere_couche", 5, 60, 1, "1re couche"),
+            curseur("vitesse", 5, 150, 1, "parois"),
+            curseur("vitesse_remplissage", 5, 200, 1, "fond / remplissage"),
+            curseur("vitesse_deplacement", 30, 500, 10, "déplacements"),
+            self._titre("Contrôles"),
+            curseur("angle_max_porte_a_faux", 30, 80, 1, "surplomb max (°)",
+                    "au-delà, une alerte s'affiche"),
+        )
+
+        # le filament en cours est repris au prochain lancement
+        for attr in CHAMPS_FILAMENT:
+            w = self.widgets.get(("Impression", attr))
+            if w is not None:
+                w.observe(lambda _: self._suspendu or self._memoriser_filament(), names="value")
+        vent.observe(lambda _: self._suspendu or self._memoriser_filament(), names="value")
+
+        sous = W.Tab(children=[page_imprimante, page_filament, page_impression])
+        for i, t in enumerate(["Imprimante", "Filament", "Impression"]):
+            sous.set_title(i, t)
+        sous.selected_index = 1
+        self.sous_onglets_reglages = sous
+        return sous
+
+    # ------------------------------------------------------------------ profils
+    def _appliquer(self, valeurs: dict):
+        """Règle des paramètres d'impression en passant par leurs widgets (aperçu rafraîchi une fois)."""
+        p = self.impression
+        self._suspendu = True
+        try:
+            for attr, v in valeurs.items():
+                if attr == "plateau":
+                    self.widgets[("Impression", "plateau_x")].value = int(v[0])
+                    self.widgets[("Impression", "plateau_y")].value = int(v[1])
+                    p.plateau = (float(v[0]), float(v[1]))
+                    continue
+                if attr == "ventilateur" and ("Impression", "ventilateur_pct") in self.widgets:
+                    self.widgets[("Impression", "ventilateur_pct")].value = round(v / 2.55)
+                w = self.widgets.get(("Impression", attr))
+                if w is not None and v is not None:
+                    if isinstance(w, self.W.Dropdown) and v not in [o[1] if isinstance(o, tuple) else o
+                                                                    for o in w.options]:
+                        w.options = list(w.options) + [v]
+                    w.value = v
+                setattr(p, attr, v)
+        finally:
+            self._suspendu = False
+        self._maj_plaques()
+        self.rafraichir()
+
+    def _dossier_filaments(self) -> Path:
+        return self.dossier_reglages / "filaments"
+
+    def _liste_filaments(self) -> list:
+        """(libellé, nom) : profils intégrés puis profils enregistrés (★)."""
+        options = [(n, n) for n in FILAMENTS]
+        if self._dossier_filaments().exists():
+            for c in sorted(self._dossier_filaments().glob("*.json")):
+                try:
+                    nom = json.loads(c.read_text(encoding="utf-8"))["filament_nom"]
+                except (OSError, ValueError, KeyError):
+                    continue
+                options.append((f"★ {nom}", nom))
+        return options
+
+    def profil_filament(self, nom: str) -> dict:
+        """Valeurs d'un profil (enregistré en priorité, sinon intégré)."""
+        for c in (self._dossier_filaments().glob("*.json") if self._dossier_filaments().exists() else []):
+            try:
+                valeurs = json.loads(c.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if valeurs.get("filament_nom") == nom:
+                return {k: v for k, v in valeurs.items() if k in CHAMPS_FILAMENT}
+        if nom in FILAMENTS:
+            return {"filament_nom": nom, **FILAMENTS[nom]}
+        raise KeyError(f"profil de filament inconnu : {nom}")
+
+    def charger_filament(self, nom: str):
+        self._appliquer(self.profil_filament(nom))
+        self._memoriser_filament()
+        if hasattr(self, "journal_filament"):
+            self.journal_filament.clear_output()
+            with self.journal_filament:
+                p = self.impression
+                print(f"✔ {nom} : buse {p.temp_buse} °C, plateau {p.temp_plateau} °C")
+
+    def filament_actuel(self) -> dict:
+        return {k: getattr(self.impression, k) for k in CHAMPS_FILAMENT}
+
+    def enregistrer_filament(self):
+        valeurs = self.filament_actuel()
+        dossier = self._dossier_filaments()
+        dossier.mkdir(parents=True, exist_ok=True)
+        fichier = "".join(c if c.isalnum() or c in "-_" else "_" for c in valeurs["filament_nom"]) or "filament"
+        chemin = dossier / f"{fichier}.json"
+        chemin.write_text(json.dumps(valeurs, ensure_ascii=False, indent=1), encoding="utf-8")
+        self.choix_filament.options = self._liste_filaments()
+        self._memoriser_filament()
+        print("✔ profil enregistré :", chemin)
+
+    def _memoriser_filament(self):
+        """Filament repris au prochain lancement."""
+        try:
+            self.dossier_reglages.mkdir(parents=True, exist_ok=True)
+            (self.dossier_reglages / "filament_actif.json").write_text(
+                json.dumps(self.filament_actuel(), ensure_ascii=False, indent=1), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _filament_memorise(self) -> dict | None:
+        try:
+            valeurs = json.loads((self.dossier_reglages / "filament_actif.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return {k: v for k, v in valeurs.items() if k in CHAMPS_FILAMENT}
 
     def _onglet_plaques(self):
         W = self.W
@@ -554,9 +714,6 @@ class Application:
                             layout=W.Layout(width="320px"),
                             tooltip="plateau 75 °C, réglages de base favorables à la transparence")
         filament.on_click(lambda _: self._executer(self.preset_petg_transparent, self.journal_plaques))
-        nom_filament = W.Text(value=self.filament_plaques.filament_nom, description="filament",
-                              style=STYLE, layout=lay, continuous_update=False)
-        self._lier(self.filament_plaques, "filament_nom", nom_filament, "Plaques")
         self.nom_plaques = W.Text(value=self._nom_plaques_auto(), description="nom des fichiers",
                                   style=STYLE, layout=lay)
         self.journal_plaques = W.Output(layout=W.Layout(width=LARGEUR, max_height="220px", overflow="auto",
@@ -639,7 +796,7 @@ class Application:
             "Transparence : buse chaude (245–255 °C), lent (20–30 mm/s), débit 1,03–1,08, "
             "peu de ventilation, couches épaisses, lignes dans un seul sens.</small>")
         self._maj_plaques()
-        return W.VBox([
+        return _defilant(W.VBox([
             filament,
             self.plaques_infos,
             self._titre("Fichiers"),
@@ -650,11 +807,6 @@ class Application:
             W.HBox([bouton("Voir le trajet G-code", "road", self.voir_trajet_plaques, "", "calcul du trajet"),
                     bouton("Ouvrir le dossier", "folder-open", self.ouvrir_dossier)]),
             self.journal_plaques,
-            self._titre("Filament des plaques"),
-            nom_filament,
-            curseur(self.filament_plaques, "temp_plateau", 0, 120, 5, "plateau (°C)"),
-            W.HTML("<small>Indépendant du filament de l'onglet Impression, qui ne règle ici que la "
-                   "machine (plateau, macros, rétraction, vitesses de déplacement).</small>"),
             self._titre("Série à tester"),
             *lignes_series,
             self._titre("Réglages de base (paramètres non testés)"),
@@ -683,31 +835,28 @@ class Application:
             case(cfg, "amorce", "ligne d'amorçage après chaque changement de température"),
             self.plaque_seule,
             aide,
-        ], layout=W.Layout(max_height="720px", overflow="auto"))
+        ], layout=W.Layout(max_height="720px", overflow="auto")))
 
     def preset_petg_transparent(self):
         """Filament PETG transparent Arianeplast + réglages de base pour la transparence."""
         self._suspendu = True
         try:
-            defaut = PL.FilamentPlaque()
-            for attr, v in vars(defaut).items():
-                setattr(self.filament_plaques, attr, v)
-                w = self.widgets.get(("Plaques", attr))
-                if w is not None:
-                    w.value = v
             for attr, v in vars(PL.REGLAGE_TRANSPARENT).items():
                 w = self.widgets.get(("Plaques", attr))
                 if w is not None:
                     w.value = v
         finally:
             self._suspendu = False
-        self.rafraichir()
-        print("✔ PETG transparent Arianeplast : buse 245 °C, plateau 75 °C, débit 1,05, 25 mm/s, "
-              "ventilateur 20 %, couches 0,20 mm (vérifiez la plage indiquée sur la bobine)")
+        self.choix_filament.value = PL_FILAMENT       # charge le profil (Réglages › Filament)
+        self.charger_filament(PL_FILAMENT)            # même s'il était déjà sélectionné
+        print(f"✔ {PL_FILAMENT} : plateau {self.impression.temp_plateau} °C ; plaques : buse 245 °C, "
+              "débit 1,05, 25 mm/s, ventilateur 20 %, couches 0,20 mm (vérifiez la plage indiquée sur "
+              "la bobine)")
 
     def machine_plaques(self) -> ParametresImpression:
-        """Machine de l'onglet Impression + filament propre aux plaques (PETG par défaut)."""
-        return self.filament_plaques.appliquer(self.impression)
+        """Réglages Imprimante + Filament ; température, débit, vitesse, ventilation et couche
+        viennent de chaque plaque."""
+        return self.impression
 
     def config_plaques(self) -> "PL.Plaques":
         """Plaques à imprimer d'après l'onglet (combinaisons des deux séries)."""
@@ -729,6 +878,14 @@ class Application:
             lignes = [f"<b>{r['plaques']} plaque{'s' * (r['plaques'] > 1)}</b> · "
                       f"{r['lots']} plateau{'x' * (r['lots'] > 1)} · texte de la 1re : "
                       f"<code>{r['etiquettes'][0]}</code>"]
+            p = self.impression
+            couleur = "#5fc28a" if p.filament_type == "PETG" else "#e8574a"
+            lignes.insert(0, f"<span style='color:{couleur}'>filament : <b>{html.escape(p.filament_nom)}</b> "
+                             f"({p.filament_type}) · plateau {p.temp_plateau} °C</span> "
+                             "<small>(Réglages › Filament)</small>")
+            if p.filament_type != "PETG":
+                lignes.insert(1, "<b style='color:#e8574a'>⚠ ces plaques sont prévues pour du PETG : "
+                                 "cliquez « Préréglage PETG transparent Arianeplast »</b>")
             lignes += [f"<span style='color:#e8a33a'>⚠ {a}</span>" for a in r["alertes"]]
             self.plaques_infos.value = "<br>".join(lignes)
         except Exception as e:
@@ -743,12 +900,17 @@ class Application:
 
     def exporter_plaques(self):
         cfg = self.config_plaques()
+        self._memoriser_filament()
+        if self.impression.filament_type != "PETG":
+            print(f"⚠ filament {self.impression.filament_nom} ({self.impression.filament_type}) : "
+                  "ces plaques sont prévues pour du PETG")
         chemin = self._chemin_plaques(".gcode")
         res = PL.exporter_plaques(cfg, chemin, self.machine_plaques(), par_plaque=self.plaque_seule.value)
         for c, t in res:
             s = t.stats
             print(f"✔ G-code : {c}")
             print(f"   {s['pieces']} plaque(s) · {s['filament_m']} m · {s['masse_g']} g · "
+                  + (f"{s['cout_eur']:.2f} € · " if s.get("cout_eur") else "") +
                   f"≈ {s['duree_min'] // 60} h {s['duree_min'] % 60:02d} min")
         for a in dict.fromkeys(a for _, t in res for a in t.avertissements):
             print("   ⚠", a)
@@ -967,11 +1129,13 @@ class Application:
     def exporter_gcode(self):
         if self._sur_plaques():
             return self.exporter_plaques()[0][1]
+        self._memoriser_filament()
         chemin = self._chemin(".gcode")
         self.trajet = exporter_gcode(self.generateur().generer(), chemin, self.impression)
         s = self.trajet.stats
         print(f"✔ G-code : {chemin}")
         print(f"   {s['couches']} couches · {s['filament_m']} m · {s['masse_g']} g · "
+              + (f"{s['cout_eur']:.2f} € · " if s.get("cout_eur") else "") +
               f"≈ {s['duree_min'] // 60} h {s['duree_min'] % 60:02d} min · mode {s['mode']}")
         for a in self.trajet.avertissements:
             print("   ⚠", a)
@@ -1092,7 +1256,10 @@ class Application:
                 if isinstance(v, list):
                     v = tuple(tuple(x) if isinstance(x, list) else x for x in v)
                 w = self.widgets.get(("Impression", n))
-                if w is not None:
+                if w is not None and v is not None:
+                    if isinstance(w, self.W.Dropdown) and v not in [o[1] if isinstance(o, tuple) else o
+                                                                    for o in w.options]:
+                        w.options = list(w.options) + [v]
                     w.value = v
                 setattr(self.impression, n, v)
             self.widgets[("Impression", "plateau_x")].value = int(imp["plateau"][0])
@@ -1117,6 +1284,17 @@ class Application:
         from IPython.display import display
 
         display(self.vue)
+
+
+def _defilant(boite):
+    """Empêche les enfants d'une boîte qui défile d'être écrasés à hauteur nulle.
+
+    Dans une VBox limitée en hauteur (``max_height`` + ``overflow``), flexbox rétrécit les
+    enfants au lieu de faire défiler : les rangées de boutons disparaissent.
+    """
+    for enfant in boite.children:
+        enfant.layout.flex = "0 0 auto"
+    return boite
 
 
 def _lire_valeurs(texte: str, attr: str) -> list:

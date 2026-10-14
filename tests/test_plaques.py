@@ -175,17 +175,39 @@ def test_reglages_dict():
     assert isinstance(cfg.reglages[0], ReglagePlaque) and cfg.reglages[0].temp_buse == 250
 
 
-def test_application_plaques_en_petg_par_defaut(tmp_path):
-    """Sans toucher au préréglage, les plaques sont en PETG même si la forme est en PLA."""
+def test_application_filament_partage_et_memorise(tmp_path):
+    """Un seul filament (Réglages › Filament) ; le préréglage des plaques le passe en PETG
+    et il est repris au lancement suivant."""
     pytest.importorskip("ipywidgets")
     from formes.application import Application
 
     app = Application(dossier=tmp_path)
     assert app.impression.filament_type == "PLA"
+    assert "prévues pour du PETG" in app.plaques_infos.value
+    app.preset_petg_transparent()
+    assert app.impression.filament_nom == "PETG transparent Arianeplast"
+    assert "prévues pour du PETG" not in app.plaques_infos.value
     app.nom_plaques.value = "essai"
     app.exporter_plaques()
     texte = (tmp_path / "essai.gcode").read_text(encoding="utf-8")
     assert "plaques de test PETG transparent Arianeplast" in texte
     assert "; filament_type = PETG" in texte and "; bed_temperature = 75" in texte
-    assert "BED=75" in texte and "PLA" not in texte
-    assert app.impression.filament_type == "PLA"          # la forme garde son filament
+    assert "BED=80" in texte and "M140 S75" in texte and "PLA" not in texte   # plateau 1re couche 80 °C
+    assert Application(dossier=tmp_path).impression.filament_nom == "PETG transparent Arianeplast"
+
+
+def test_application_profil_filament(tmp_path):
+    pytest.importorskip("ipywidgets")
+    from formes.application import Application
+
+    app = Application(dossier=tmp_path)
+    app.choix_filament.value = "PETG"
+    assert app.impression.temp_plateau == 80 and app.widgets[("Impression", "temp_plateau")].value == 80
+    app.widgets[("Impression", "filament_nom")].value = "Mon PETG"
+    app.widgets[("Impression", "temp_buse")].value = 238
+    app.enregistrer_filament()
+    assert ("★ Mon PETG", "Mon PETG") in app.choix_filament.options
+    app.choix_filament.value = "PLA"
+    assert app.impression.temp_buse == 210
+    app.choix_filament.value = "Mon PETG"
+    assert app.impression.temp_buse == 238 and app.impression.filament_nom == "Mon PETG"

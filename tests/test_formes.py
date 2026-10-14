@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -260,7 +262,7 @@ def test_application(tmp_path):
     w[("Nervures", "actif")].value = True
     w[("Nervures", "nombre")].value = 20
     w[("Emboitement", "choix")].value = "Couvercle"
-    w[("Impression", "filament")].value = "PETG"
+    app.choix_filament.value = "PETG"
     w[("Impression", "imprimante")].value = "Voron 2.4 – 350"
     assert app.impression.temp_buse == 235 and app.impression.plateau == (350.0, 350.0)
     app._deplacer(app.deformations[-1], -1)
@@ -450,3 +452,33 @@ def test_dentelle_abat_jour():
     assert brins[:, 2].min() >= -1e-6 and brins[:, 2].max() <= 50 + 1e-6
     texte, trajet = generer_gcode(a, ParametresImpression(vignettes=(), couches_fond=6))
     assert trajet.stats["mode"] == "dentelle" and not trajet.avertissements
+
+
+def test_premiere_couche_et_options_filament():
+    a = Generateur(petite_base(), []).generer()
+    p = ParametresImpression(mode="couches", vignettes=(), macro_debut=None, hauteur_premiere_couche=0.3,
+                             temp_buse_premiere_couche=215, temp_plateau_premiere_couche=65,
+                             couches_sans_ventilateur=3, z_hop=0.4, cout_kg=20.0)
+    texte, trajet = generer_gcode(a, p)
+    z = [float(l[3:]) for l in texte.splitlines() if l.startswith(";Z:")]
+    assert z[0] == pytest.approx(0.3) and z[1] == pytest.approx(0.5)
+    assert z[-1] <= 20 + 1e-6 and len(z) == 99
+    lignes = texte.splitlines()
+    assert lignes.index("M109 S215") < lignes.index(";Z:0.300")
+    assert lignes.index("M104 S210") > lignes.index(";Z:0.300") and "M140 S60" in lignes
+    assert lignes.index("M106 S255") > lignes.index(";Z:0.700")      # après 3 couches
+    assert "; first_layer_height = 0.3" in texte and "; first_layer_temperature = 215" in texte
+    assert trajet.stats["cout_eur"] == pytest.approx(trajet.stats["masse_g"] / 1000 * 20, abs=0.01)
+    # z-hop : la buse monte avant chaque déplacement rétracté
+    i = next(k for k, l in enumerate(lignes) if l.startswith("G1 E") and k > lignes.index(";Z:0.500"))
+    assert lignes[i + 1].startswith("G0 Z")
+
+
+def test_premiere_couche_plus_epaisse():
+    a = Generateur(petite_base(), []).generer()
+    base = ParametresImpression(mode="couches", vignettes=())
+    _, t1 = generer_gcode(a, base)
+    _, t2 = generer_gcode(a, replace(base, hauteur_premiere_couche=0.3))
+    # une couche de moins, la 1re étant 1,5 fois plus épaisse (et 1,5 fois plus chargée)
+    assert t2.stats["couches"] == t1.stats["couches"] - 1
+    assert t1.stats["filament_m"] < t2.stats["filament_m"] < t1.stats["filament_m"] * 1.1

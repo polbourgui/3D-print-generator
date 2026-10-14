@@ -54,8 +54,8 @@ Tout se règle à la souris, sans saisie :
 | **Déformations** | une case pour activer chaque module, ses curseurs, ↑ / ↓ pour l'ordre d'application |
 | **Emboîtement** | boutons radio : aucun, gigogne, empilement, réseau, couvercle, luminaire |
 | **Dentelle** | paroi ajourée en filet, imprimée en non planaire : motif (losanges, zigzag, alvéoles), mailles, bords pleins, pièce de calibration |
-| **Impression** | préréglages d'imprimante (Voron, Creality K1, Ender 3, Prusa…) et de filament (PLA, PETG, PETG transparent Arianeplast, ABS, ASA, TPU), firmware, mode spirale / couches, vitesses, options Klipper (macros, purge KAMP, maillage adaptatif, exclude object) |
-| **Plaques test** | plaques 35 × 70 mm pour régler un filament (PETG transparent Arianeplast), une série de réglages par plaque, gravés en empreinte dans le bas de la pièce ; G-code, STL et fiche d'évaluation |
+| **Réglages** | trois pages comme dans un trancheur : **Imprimante** (modèle préréglé, firmware, plateau, hauteur max, buse, vitesse Z, vignettes, options Klipper : macros, purge KAMP, maillage adaptatif, exclude object, rétraction firmware), **Filament** (profils PLA, PETG, PETG transparent Arianeplast, ABS, ASA, TPU et profils enregistrés ; nom, type, couleur, Ø, densité, prix ; températures buse et plateau, dont 1re couche ; ventilateur et couches sans ventilation ; multiplicateur de débit ; rétraction, seuil, z-hop), **Impression** (mode spirale / couches, hauteurs de 1re couche et de couche, largeur de ligne, couches de fond, vitesses) |
+| **Plaques** | plaques de test 35 × 70 mm pour régler un filament (PETG transparent Arianeplast), une série de réglages par plaque, gravés en empreinte dans le bas de la pièce ; G-code, STL et fiche d'évaluation |
 | **Export** | HTML, STL et G-code en un clic, trajet G-code, ouverture du dossier `sorties/`, sauvegarde et chargement des réglages |
 
 En haut : **Aperçu** (Rapide / Normal / Fin) règle la finesse de la vue pendant les
@@ -137,7 +137,7 @@ que de **segments droits** entre des nœuds placés sur la surface de la forme.
   classique) et gardez une marge. Si l'étage est trop haut pour la largeur de maille,
   l'application le signale : baissez la hauteur d'étage ou le nombre de cellules.
 - Ventilation forcée à 100 %. Une buse 5 à 10 °C plus froide aide les brins à figer.
-- La vitesse de l'axe Z reste sous `vitesse_z_max` (onglet Impression, préréglée selon
+- La vitesse de l'axe Z reste sous `vitesse_z_max` (Réglages › Imprimante, préréglée selon
   l'imprimante).
 - Seul le **G-code** contient les jours ; la vue 3D montre les brins, le STL reste plein.
 - Une seule pièce : la dentelle est ignorée pour les assemblages (gigogne, couvercle…).
@@ -153,9 +153,22 @@ que de **segments droits** entre des nœuds placés sur la surface de la forme.
 | cheveux, fils | buse 5 à 10 °C plus froide, `pause` et `pause_noeud` ↓ |
 | brin qui touche le flanc chaud de la buse pendant les descentes | `angle_buse` ↓ (35°) |
 
+### Réglages (Imprimante, Filament, Impression)
+
+Comme dans un trancheur, les réglages sont rangés en trois pages :
+
+- **Imprimante** : ce qui ne change pas d'un filament à l'autre (plateau, buse, firmware, macros).
+- **Filament** : un profil par filament. Choisissez un profil dans la liste, modifiez-le, puis
+  **Enregistrer le profil** : il est rangé dans `sorties/reglages/filaments/` et apparaît dans la
+  liste avec une ★. Températures de 1re couche (la macro `PRINT_START` les reçoit, puis les
+  températures normales sont envoyées après la 1re couche), couches sans ventilation, débit,
+  rétraction (avec seuil de déplacement et z-hop) et prix au kilo (coût estimé à l'export).
+- **Impression** : hauteur de 1re couche, hauteur de couche, largeur de ligne, couches de fond,
+  vitesses.
+
 ### Plaques de test (PETG transparent Arianeplast)
 
-Onglet **Plaques test** : une série de plaques **35 × 70 mm** (2 mm d'épaisseur par défaut),
+Onglet **Plaques** : une série de plaques **35 × 70 mm** (2 mm d'épaisseur par défaut),
 pleines, en lignes parallèles, chacune avec ses propres réglages. Les réglages sont gravés en
 **empreinte dans le bas de la plaque** (bande du bord avant) :
 
@@ -171,8 +184,12 @@ F20 H20      ventilateur 20 %, couches de 0,20 mm   (L45 : ligne 0,45 mm ; ML / 
                                                      longitudinales / transversales / croisées)
 ```
 
-1. **Préréglage PETG transparent Arianeplast** : plateau 75 °C, buse 245 °C, débit 1,05,
-   25 mm/s, ventilateur 20 %, couches 0,20 mm (vérifiez la plage indiquée sur votre bobine).
+1. **Préréglage PETG transparent Arianeplast** : charge ce profil dans **Réglages › Filament**
+   (plateau 80 °C à la 1re couche puis 75 °C, z-hop 0,2 mm, rétraction 1 mm) et règle la base des
+   plaques : buse 245 °C, débit 1,05, 25 mm/s, ventilateur 20 %, couches 0,20 mm (vérifiez la plage
+   indiquée sur votre bobine). Le bandeau de l'onglet rappelle le filament actif et passe au rouge
+   s'il ne s'agit pas de PETG. Le filament est le même pour la forme et les plaques, comme dans un
+   trancheur ; il est repris au lancement suivant.
 2. Choisissez le **paramètre testé** (température, débit, vitesse, ventilateur, hauteur de
    couche, largeur de ligne, orientation des lignes) ; les valeurs se modifient au clavier
    (`235 240 245`, `1,02 ; 1,05`). Un second paramètre donne une grille (toutes les combinaisons).

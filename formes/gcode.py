@@ -51,7 +51,15 @@ class ParametresImpression:
     vitesse_deplacement: float = 120.0
     retraction: float = 1.0            # mm (0 pour désactiver)
     vitesse_retraction: float = 35.0
-    ventilateur: int = 255             # 0..255, activé à partir de la 2e couche
+    retraction_min_deplacement: float = 2.0   # mm : pas de rétraction pour un déplacement plus court
+    z_hop: float = 0.0                 # mm : levée de buse pendant les déplacements rétractés
+    ventilateur: int = 255             # 0..255
+    couches_sans_ventilateur: int = 1  # le ventilateur démarre à la couche n + 1
+    # 1re couche : None = mêmes valeurs que les autres couches
+    hauteur_premiere_couche: float | None = None
+    temp_buse_premiere_couche: int | None = None
+    temp_plateau_premiere_couche: int | None = None
+    cout_kg: float = 0.0               # prix du filament (€/kg) pour l'estimation du coût
     plateau: tuple = (220.0, 220.0)    # dimensions X, Y (mm)
     hauteur_max: float = 250.0
     centre: tuple | None = None        # centre de la pièce ; None = centre du plateau
@@ -169,9 +177,15 @@ class _Ecrivain:
         d = np.linalg.norm(pt[:2] - self.pos[:2])
         if d < 1e-6 and abs(pt[2] - self.pos[2]) < 1e-6:
             return
-        if d > 2.0 and self.filament > 0:
+        if d > self.p.retraction_min_deplacement and self.filament > 0:
             self._retracter()
-        self(f"G0 X{pt[0]:.3f} Y{pt[1]:.3f} Z{pt[2]:.3f} F{self.p.vitesse_deplacement * 60:.0f}")
+        f = self.p.vitesse_deplacement * 60
+        if self.p.z_hop > 0 and self.retracte and d > self.p.retraction_min_deplacement:
+            haut = max(self.pos[2], pt[2]) + self.p.z_hop
+            self(f"G0 Z{haut:.3f} F{min(self.p.vitesse_z_max, self.p.vitesse_deplacement) * 60:.0f}")
+            self(f"G0 X{pt[0]:.3f} Y{pt[1]:.3f} F{f:.0f}")
+            self.temps += 2 * self.p.z_hop / min(self.p.vitesse_z_max, self.p.vitesse_deplacement)
+        self(f"G0 X{pt[0]:.3f} Y{pt[1]:.3f} Z{pt[2]:.3f} F{f:.0f}")
         self.trajet.segments.append(("deplacement", np.array([self.pos, pt])))
         self.temps += d / self.p.vitesse_deplacement
         self.pos = pt
@@ -280,6 +294,23 @@ def _duree_texte(secondes: float) -> str:
     return " ".join(morceaux + [f"{s}s"])
 
 
+def _temperatures_premiere_couche(p: ParametresImpression) -> tuple[int, int]:
+    """(buse, plateau) pour la 1re couche."""
+    buse = p.temp_buse if p.temp_buse_premiere_couche is None else p.temp_buse_premiere_couche
+    plateau = p.temp_plateau if p.temp_plateau_premiere_couche is None else p.temp_plateau_premiere_couche
+    return buse, plateau
+
+
+def _apres_premiere_couche(w: _Ecrivain):
+    """Températures des couches suivantes, si celles de la 1re couche diffèrent."""
+    p = w.p
+    buse, plateau = _temperatures_premiere_couche(p)
+    if buse != p.temp_buse:
+        w(f"M104 S{p.temp_buse}")
+    if plateau != p.temp_plateau:
+        w(f"M140 S{p.temp_plateau}")
+
+
 def _demarrer(w: _Ecrivain, mn, mx):
     """Démarrage : macro (ou chauffe + G28), maillage, unités, purge.
 
@@ -287,14 +318,15 @@ def _demarrer(w: _Ecrivain, mn, mx):
     """
     p = w.p
     klipper = p.firmware == "klipper"
+    buse, plateau = _temperatures_premiere_couche(p)
     w("M107")
     if klipper and p.macro_debut:
-        w(p.macro_debut.format(**vars(p)))
+        w(p.macro_debut.format(**{**vars(p), "temp_buse": buse, "temp_plateau": plateau}))
     else:
-        w(f"M140 S{p.temp_plateau}")
-        w(f"M104 S{p.temp_buse}")
-        w(f"M190 S{p.temp_plateau}")
-        w(f"M109 S{p.temp_buse}")
+        w(f"M140 S{plateau}")
+        w(f"M104 S{buse}")
+        w(f"M190 S{plateau}")
+        w(f"M109 S{buse}")
         w("G28")
     if klipper and p.maillage_adaptatif:
         w("BED_MESH_CALIBRATE ADAPTIVE=1")
@@ -324,6 +356,8 @@ def _terminer(w: _Ecrivain, nb_couches: int, max_z: float, meta_sup: dict | None
     p = w.p
     klipper = p.firmware == "klipper"
     h = p.hauteur_couche
+    h1 = p.hauteur_premiere_couche or h
+    buse1, plateau1 = _temperatures_premiere_couche(p)
     w._retracter()
     if klipper and p.macro_fin:
         w(p.macro_fin.format(**vars(p)))
@@ -347,18 +381,20 @@ def _terminer(w: _Ecrivain, nb_couches: int, max_z: float, meta_sup: dict | None
     w(f"; filament used [cm3] = {volume_cm3:.2f}")
     w(f"; filament used [g] = {masse:.2f}")
     w(f"; total filament used [g] = {masse:.2f}")
+    if p.cout_kg:
+        w(f"; filament cost = {masse / 1000 * p.cout_kg:.2f}")
     w(f"; estimated printing time (normal mode) = {_duree_texte(duree_s)}")
     w(f"; total layers count = {nb_couches}")
     w(f"; max_z_height = {max_z:.3f}")
     w("")
     w("; generateur_formes_config = begin")
     meta = {
-        "layer_height": h, "first_layer_height": h, "nozzle_diameter": p.diametre_buse,
+        "layer_height": h, "first_layer_height": h1, "nozzle_diameter": p.diametre_buse,
         "filament_diameter": p.diametre_filament, "filament_density": p.densite_g_cm3,
         "filament_type": p.filament_type, "filament_settings_id": f'"{p.filament_nom}"',
         "filament_colour": p.filament_couleur, "extruder_colour": p.filament_couleur,
-        "temperature": p.temp_buse, "first_layer_temperature": p.temp_buse,
-        "bed_temperature": p.temp_plateau, "first_layer_bed_temperature": p.temp_plateau,
+        "temperature": p.temp_buse, "first_layer_temperature": buse1,
+        "bed_temperature": p.temp_plateau, "first_layer_bed_temperature": plateau1,
         "spiral_vase": 0, "extrusion_width": p.largeur_ligne,
         "bed_shape": f"0x0,{p.plateau[0]:g}x0,{p.plateau[0]:g}x{p.plateau[1]:g},0x{p.plateau[1]:g}",
         "max_print_height": p.hauteur_max, "gcode_flavor": p.firmware,
@@ -424,13 +460,14 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
         pieces = [q.copie(douille_bas=(q.douille_bas[0], 0.0)) if q.douille_bas else q for q in pieces]
 
     h = p.hauteur_couche
+    h1 = p.hauteur_premiere_couche or h            # z de la couche k : h1 + k × h
     hauts = [q.z[-1] for q in pieces]
-    nb_couches = int(np.floor(max(hauts) / h + 1e-6))
+    nb_couches = int(np.floor((max(hauts) - h1) / h + 1e-6)) + 1
     debut_spirale = max(p.couches_fond, 1)   # la 1re couche est toujours à plat
     if mode == "dentelle":
         q = pieces[0]
         d = q.dentelle
-        etages_dentelle = d.trajet(q, h, q.z[0] + debut_spirale * h, p.largeur_ligne)
+        etages_dentelle = d.trajet(q, h, q.z[0] + h1 + (debut_spirale - 1) * h, p.largeur_ligne)
         nb_couches = debut_spirale + len(etages_dentelle)
         r = d.resume(q, h)
         if r["etages"] == 0:
@@ -474,19 +511,23 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
 
     # -- couches ---------------------------------------------------------------
     plusieurs = len(pieces) > 1
+    e_par_mm = w.e_par_mm
     for k in range(nb_couches):
-        z = h * (k + 1)
+        z = h1 + h * k
+        w.e_par_mm = e_par_mm * (h1 / h if k == 0 else 1.0)
         if mode == "dentelle" and k >= debut_spirale:
             etage = etages_dentelle[k - debut_spirale]
             z = float(max(pts[:, 2].max() for _, pts, _ in etage))
         w(";LAYER_CHANGE")
         w(f";Z:{z:.3f}")
-        w(f";HEIGHT:{h}")
+        w(f";HEIGHT:{h1 if k == 0 else h}")
         w(";BEFORE_LAYER_CHANGE")
         w(f";{z:.3f}")
         if klipper:
             w(f"SET_PRINT_STATS_INFO CURRENT_LAYER={k + 1}")
-        if k == 1 and p.ventilateur:
+        if k == 1:
+            _apres_premiere_couche(w)
+        if k == p.couches_sans_ventilateur and p.ventilateur:
             w(f"M106 S{p.ventilateur}")
         v = p.vitesse_premiere_couche if k == 0 else p.vitesse
         for n, q in zip(noms, pieces):
@@ -533,7 +574,7 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
                     w._retracter()
                 w(f"EXCLUDE_OBJECT_END NAME={n}")
 
-    masse, duree_s = _terminer(w, nb_couches, max(hauts) if mode == "dentelle" else nb_couches * h,
+    masse, duree_s = _terminer(w, nb_couches, max(hauts) if mode == "dentelle" else h1 + (nb_couches - 1) * h,
                                {"spiral_vase": int(mode == "spirale")})
 
     w.trajet.stats = {
@@ -544,6 +585,7 @@ def generer_gcode(assemblage: Assemblage | Forme, p: ParametresImpression | None
         "couches": nb_couches,
         "filament_m": round(float(w.filament) / 1000, 2),
         "masse_g": round(float(masse), 1),
+        "cout_eur": round(float(masse) / 1000 * p.cout_kg, 2),
         "duree_min": int(round(duree_s / 60)),
         "lignes": len(w.lignes),
         "boite_mm": [round(float(x), 1) for x in (*mn, *mx)],

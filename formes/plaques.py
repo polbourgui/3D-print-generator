@@ -35,14 +35,14 @@ from __future__ import annotations
 import csv
 import itertools
 import struct
-from dataclasses import asdict, dataclass, field, fields, replace
+from dataclasses import dataclass, field, fields, replace
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
-from .gcode import (VERSION, ParametresImpression, Trajet, _demarrer, _Ecrivain, _nom_objet,
-                    _polygone_objet, _terminer)
+from .gcode import (VERSION, ParametresImpression, Trajet, _apres_premiere_couche, _demarrer, _Ecrivain,
+                    _nom_objet, _polygone_objet, _terminer)
 from .geometrie import Forme
 
 # ---------------------------------------------------------------------------
@@ -58,20 +58,6 @@ PETG_ARIANEPLAST = dict(
     vitesse_premiere_couche=15.0, vitesse_deplacement=150.0,
 )
 
-
-
-@dataclass
-class FilamentPlaque:
-    """Filament des plaques : remplace celui des réglages machine (en-tête, plateau, masse)."""
-
-    filament_nom: str = "PETG transparent Arianeplast"
-    filament_type: str = "PETG"
-    filament_couleur: str = "#DDEEF2"
-    temp_plateau: int = 75
-    densite_g_cm3: float = 1.27
-
-    def appliquer(self, p: ParametresImpression) -> ParametresImpression:
-        return replace(p, **asdict(self))
 
 
 MOTIFS = ("longitudinal", "transversal", "croise")
@@ -513,8 +499,11 @@ def generer_gcode_plaques(lot: list[Plaque], cfg: Plaques, p: ParametresImpressi
         raise ValueError(f"firmware inconnu : {p.firmware!r} (klipper | marlin)")
     klipper = p.firmware == "klipper"
     premier = lot[0].reglage
+    # la température et la hauteur de couche sont celles de chaque plaque (ce que l'on teste) :
+    # pas de valeurs propres à la 1re couche, sauf pour le plateau
     p = replace(p, temp_buse=premier.temp_buse, hauteur_couche=premier.hauteur_couche,
-                largeur_ligne=premier.largeur_ligne, mode="couches")
+                largeur_ligne=premier.largeur_ligne, mode="couches",
+                temp_buse_premiere_couche=None, hauteur_premiere_couche=None)
     w = _Ecrivain(p)
     av = w.trajet.avertissements
     formes = [q.forme() for q in lot]
@@ -590,7 +579,9 @@ def generer_gcode_plaques(lot: list[Plaque], cfg: Plaques, p: ParametresImpressi
             w(f";HEIGHT:{r.hauteur_couche}")
             if klipper:
                 w(f"SET_PRINT_STATS_INFO CURRENT_LAYER={couche_globale}")
-            if k == 1 and r.ventilateur:
+            if k == 1 and couche_globale == 2:
+                _apres_premiere_couche(w)               # plateau des couches suivantes
+            if k == p.couches_sans_ventilateur and r.ventilateur:
                 w(f"M106 S{round(r.ventilateur * 2.55)}")
             v = min(p.vitesse_premiere_couche, r.vitesse) if k == 0 else r.vitesse
             _couche(w, q, k, z, v)
@@ -612,6 +603,7 @@ def generer_gcode_plaques(lot: list[Plaque], cfg: Plaques, p: ParametresImpressi
         "couches": nb_couches,
         "filament_m": round(float(w.filament) / 1000, 2),
         "masse_g": round(float(masse), 1),
+        "cout_eur": round(float(masse) / 1000 * p.cout_kg, 2),
         "duree_min": int(round(duree_s / 60)),
         "lignes": len(w.lignes),
         "boite_mm": [round(float(x), 1) for x in (*mn, *mx)],
@@ -745,7 +737,7 @@ def resume(cfg: Plaques, p: ParametresImpression | None = None) -> dict:
 
 
 __all__ = [
-    "PETG_ARIANEPLAST", "REGLAGE_TRANSPARENT", "FilamentPlaque", "SERIES", "MOTIFS", "LEGENDE",
+    "PETG_ARIANEPLAST", "REGLAGE_TRANSPARENT", "SERIES", "MOTIFS", "LEGENDE",
     "ReglagePlaque", "Plaques", "Plaque", "plan", "serie", "disposer",
     "generer_gcode_plaques", "exporter_plaques", "exporter_stl_plaques", "exporter_fiche",
     "figure_plaques", "resume", "ParametresImpression",

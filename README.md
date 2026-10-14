@@ -176,8 +176,10 @@ F20 H20      ventilateur 20 %, couches de 0,20 mm   (L45 : ligne 0,45 mm ; ML / 
 2. Choisissez le **paramètre testé** (température, débit, vitesse, ventilateur, hauteur de
    couche, largeur de ligne, orientation des lignes) ; les valeurs se modifient au clavier
    (`235 240 245`, `1,02 ; 1,05`). Un second paramètre donne une grille (toutes les combinaisons).
-3. **Exporter G-code + fiche** (la vue de droite montre les plaques tant que l'onglet est ouvert) : le G-code et une fiche `.csv` (Excel / LibreOffice) pour noter
-   chaque plaque (transparence, bulles, lignes visibles, fils, adhérence).
+3. **Exporter G-code + fiche** (en haut de l'onglet, avec le nom des fichiers et le journal) :
+   le G-code et une fiche `.csv` (Excel / LibreOffice) pour noter chaque plaque (transparence,
+   bulles, lignes visibles, fils, adhérence), dans le dossier `sorties/` (bouton **Ouvrir le
+   dossier**). La vue de droite montre les plaques tant que l'onglet est ouvert.
 
 Les plaques s'impriment **l'une après l'autre** : chacune à sa température (ordre croissant pour
 ne jamais attendre le refroidissement), avec une ligne d'amorçage après chaque chauffe, son débit,

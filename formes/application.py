@@ -548,7 +548,11 @@ class Application:
         filament = W.Button(description="Préréglage PETG transparent Arianeplast", icon="tint",
                             layout=W.Layout(width="320px"),
                             tooltip="plateau 75 °C, réglages de base favorables à la transparence")
-        filament.on_click(lambda _: self._executer(self.preset_petg_transparent))
+        filament.on_click(lambda _: self._executer(self.preset_petg_transparent, self.journal_plaques))
+        self.nom_plaques = W.Text(value=self._nom_plaques_auto(), description="nom des fichiers",
+                                  style=STYLE, layout=lay)
+        self.journal_plaques = W.Output(layout=W.Layout(width=LARGEUR, max_height="220px", overflow="auto",
+                                                        border="1px solid #555", padding="2px 6px"))
 
         options_serie = [("aucune", "")] + [(k, k) for k in PL.SERIES]
         self.series = []
@@ -601,9 +605,21 @@ class Application:
 
         self.plaque_seule = W.Checkbox(value=False, description="un G-code par plaque", indent=False)
 
-        def bouton(texte, icone, action, style=""):
+        def bouton(texte, icone, action, style="", attente=""):
             bt = W.Button(description=texte, icon=icone, button_style=style, layout=W.Layout(width="220px"))
-            bt.on_click(lambda _: self._executer(action))
+
+            def clic(_):
+                self.journal_plaques.clear_output()
+                if attente:
+                    with self.journal_plaques:
+                        print(f"⏳ {attente}…")
+                bt.disabled = True
+                try:
+                    self._executer(action, self.journal_plaques)
+                finally:
+                    bt.disabled = False
+
+            bt.on_click(clic)
             return bt
 
         aide = W.HTML(
@@ -617,6 +633,15 @@ class Application:
         self._maj_plaques()
         return W.VBox([
             filament,
+            self.plaques_infos,
+            self._titre("Fichiers"),
+            self.nom_plaques,
+            W.HBox([bouton("Exporter G-code + fiche", "print", self.exporter_plaques, "success",
+                           "export du G-code (quelques secondes)"),
+                    bouton("STL (autre trancheur)", "cube", self.exporter_stl_plaques, "", "export du STL")]),
+            W.HBox([bouton("Voir le trajet G-code", "road", self.voir_trajet_plaques, "", "calcul du trajet"),
+                    bouton("Ouvrir le dossier", "folder-open", self.ouvrir_dossier)]),
+            self.journal_plaques,
             self._titre("Série à tester"),
             *lignes_series,
             self._titre("Réglages de base (paramètres non testés)"),
@@ -644,12 +669,6 @@ class Application:
             case(cfg, "trier_temperature", "imprimer par température croissante"),
             case(cfg, "amorce", "ligne d'amorçage après chaque changement de température"),
             self.plaque_seule,
-            self._titre("Fichiers (nom : onglet Export)"),
-            W.HBox([bouton("Exporter G-code + fiche", "print", self.exporter_plaques, "success"),
-                    bouton("Aperçu des plaques", "eye", self.voir_plaques)]),
-            W.HBox([bouton("STL (autre trancheur)", "cube", self.exporter_stl_plaques),
-                    bouton("Voir le trajet G-code", "road", self.voir_trajet_plaques)]),
-            self.plaques_infos,
             aide,
         ], layout=W.Layout(max_height="720px", overflow="auto"))
 
@@ -698,9 +717,16 @@ class Application:
         except Exception as e:
             self.plaques_infos.value = f"<b style='color:#e8574a'>Erreur : {e}</b>"
 
+    def _nom_plaques_auto(self):
+        return f"plaques-petg-{datetime.now():%Y%m%d-%H%M%S}"
+
+    def _chemin_plaques(self, ext):
+        nom = "".join(c if c.isalnum() or c in "-_" else "_" for c in self.nom_plaques.value.strip())
+        return (self.dossier / f"{nom or 'plaques'}{ext}").resolve()
+
     def exporter_plaques(self):
         cfg = self.config_plaques()
-        chemin = self._chemin(".gcode")
+        chemin = self._chemin_plaques(".gcode")
         res = PL.exporter_plaques(cfg, chemin, self.impression, par_plaque=self.plaque_seule.value)
         for c, t in res:
             s = t.stats
@@ -709,12 +735,12 @@ class Application:
                   f"≈ {s['duree_min'] // 60} h {s['duree_min'] % 60:02d} min")
         for a in dict.fromkeys(a for _, t in res for a in t.avertissements):
             print("   ⚠", a)
-        print("✔ fiche  :", PL.exporter_fiche(cfg, self._chemin(".csv"), self.impression))
+        print("✔ fiche  :", PL.exporter_fiche(cfg, self._chemin_plaques(".csv"), self.impression))
         self.trajet = res[0][1]
         return res
 
     def exporter_stl_plaques(self):
-        for c in PL.exporter_stl_plaques(self.config_plaques(), self._chemin(".stl"), self.impression):
+        for c in PL.exporter_stl_plaques(self.config_plaques(), self._chemin_plaques(".stl"), self.impression):
             print("✔ STL    :", c)
         print("   (réglages de chaque plaque à saisir dans votre trancheur : voir la fiche CSV)")
 
@@ -729,8 +755,7 @@ class Application:
         self._maj_plaques()
         with self.sortie:
             self.sortie.clear_output(wait=True)
-            fig = PL.figure_plaques(self.config_plaques(), self.impression,
-                                    titre=f"{self.nom.value} : plaques de test")
+            fig = PL.figure_plaques(self.config_plaques(), self.impression, titre=self.nom_plaques.value)
             fig.update_layout(height=640)
             self._derniere_figure = fig
             display(fig)
@@ -744,7 +769,7 @@ class Application:
         _, trajet = PL.generer_gcode_plaques(lots[0], cfg, replace(self.impression, vignettes=()))
         with self.sortie:
             self.sortie.clear_output(wait=True)
-            fig = figure_trajet(trajet, titre=f"{self.nom.value} : trajet des plaques")
+            fig = figure_trajet(trajet, titre=f"{self.nom_plaques.value} : trajet des plaques")
             fig.update_layout(height=640)
             display(fig)
 
@@ -867,8 +892,8 @@ class Application:
         return "<br>".join(lignes)
 
     # ------------------------------------------------------------------ actions
-    def _executer(self, action):
-        with self.journal:
+    def _executer(self, action, journal=None):
+        with journal or self.journal:
             try:
                 action()
             except Exception as e:

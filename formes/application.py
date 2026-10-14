@@ -22,6 +22,7 @@ ou, sans aucun code visible : ``python -m voila generateur_formes.ipynb``.
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import random
@@ -114,6 +115,7 @@ DESCRIPTIONS = {
 LIBELLES = {"a poser": "à poser", "alveoles": "alvéoles"}
 
 ONGLET_PLAQUES = 5        # position de l'onglet « Plaques test »
+ONGLETS_FORME = (0, 1, 2, 3)  # Forme, Déformations, Emboîtement, Dentelle
 
 APERCU = {"Rapide": (60, 144), "Normal": (120, 240), "Fin": (None, None)}
 
@@ -162,6 +164,7 @@ class Application:
         self.dossier_reglages = self.dossier / "reglages"
         self._suspendu = False
         self._derniere_figure = None
+        self.mode_vue = "forme"            # "forme" | "plaques" : ce que montre la vue et exporte Export
 
         # -- état ---------------------------------------------------------------
         self.base = Base(profil="polygone", cotes=7, rayon=35, hauteur=90, couches=150, points=360)
@@ -193,8 +196,9 @@ class Application:
                                "Plaques test", "Export"]):
             onglets.set_title(i, t)
         onglets.layout = W.Layout(width="590px")
-        # la vue suit l'onglet : plaques de test sur « Plaques test », forme ailleurs
-        onglets.observe(lambda _: self.rafraichir(), names="selected_index")
+        # la vue suit l'onglet : plaques de test sur « Plaques test », forme sur les onglets de
+        # forme ; Impression et Export gardent ce qui était affiché (et l'exportent)
+        onglets.observe(self._changer_onglet, names="selected_index")
 
         self.qualite = W.ToggleButtons(options=list(APERCU), value="Rapide",
                                        description="Aperçu", style={"button_width": "70px"},
@@ -745,8 +749,33 @@ class Application:
         print("   (réglages de chaque plaque à saisir dans votre trancheur : voir la fiche CSV)")
 
     def _sur_plaques(self) -> bool:
-        """L'onglet « Plaques test » est-il ouvert ?"""
-        return getattr(self, "onglets", None) is not None and self.onglets.selected_index == ONGLET_PLAQUES
+        """La vue (et l'onglet Export) portent-ils sur les plaques de test ?"""
+        return self.mode_vue == "plaques"
+
+    def _changer_onglet(self, ch):
+        mode = self.mode_vue
+        if ch["new"] == ONGLET_PLAQUES:
+            mode = "plaques"
+        elif ch["new"] in ONGLETS_FORME:
+            mode = "forme"
+        if mode != self.mode_vue:
+            self.mode_vue = mode
+            self._maj_mode_export()
+            self.rafraichir()
+
+    def _maj_mode_export(self):
+        if not hasattr(self, "mode_export"):
+            return
+        if self._sur_plaques():
+            self.mode_export.value = (
+                "<div style='background:#1f3a44;padding:6px 8px;border-radius:4px'>Contenu exporté : "
+                "<b>plaques de test</b> (fichiers <code>" + html.escape(self._chemin_plaques("").name)
+                + ".*</code>, nom "
+                "réglé dans l'onglet Plaques test). Pour exporter la forme : ouvrez l'onglet "
+                "<b>Forme</b>.</div>")
+        else:
+            self.mode_export.value = ("<small>Contenu exporté : <b>la forme</b>. Pour les plaques de "
+                                      "test : ouvrez l'onglet <b>Plaques test</b>.</small>")
 
     def voir_plaques(self):
         """Affiche les plaques dans la vue (automatique quand l'onglet Plaques test est ouvert)."""
@@ -782,6 +811,9 @@ class Application:
         self.nom = W.Text(value=self._nom_auto(), description="nom des fichiers", style=STYLE,
                           layout=W.Layout(width=LARGEUR))
         nouveau = W.Button(description="Nouveau nom", icon="refresh", layout=W.Layout(width="150px"))
+        self.mode_export = W.HTML()
+        self._maj_mode_export()
+        self.nom_plaques.observe(lambda _: self._maj_mode_export(), names="value")
         nouveau.on_click(lambda _: setattr(self.nom, "value", self._nom_auto()))
 
         def bouton(texte, icone, action, style=""):
@@ -803,6 +835,7 @@ class Application:
 
         return W.VBox([
             self._titre("Fichiers"),
+            self.mode_export,
             W.HBox([self.nom]), nouveau,
             W.HBox([tout, gcode]), W.HBox([stl, html]), W.HBox([trajet, ouvrir]),
             self._titre("Réglages"),
@@ -904,15 +937,23 @@ class Application:
         return self.dossier / f"{nom}{ext}"
 
     def exporter_html(self):
+        if self._sur_plaques():
+            fig = PL.figure_plaques(self.config_plaques(), self.impression, titre=self.nom_plaques.value)
+            print("✔ vue 3D :", exporter_html(fig, self._chemin_plaques(".html")))
+            return
         a = self.generateur().generer()
         print("✔ vue 3D :", exporter_html(figure_3d(a, titre=self.nom.value), self._chemin(".html")))
 
     def exporter_stl(self):
+        if self._sur_plaques():
+            return self.exporter_stl_plaques()
         print("✔ STL    :", self.generateur().generer().exporter_stl(self._chemin(".stl")))
         if self.dentelle.actif:
             print("   (STL plein : la dentelle n'existe que dans le G-code)")
 
     def exporter_gcode(self):
+        if self._sur_plaques():
+            return self.exporter_plaques()[0][1]
         chemin = self._chemin(".gcode")
         self.trajet = exporter_gcode(self.generateur().generer(), chemin, self.impression)
         s = self.trajet.stats
@@ -932,6 +973,9 @@ class Application:
     def voir_trajet(self):
         from IPython.display import display
 
+        if self._sur_plaques():
+            self.exporter_plaques()
+            return self.voir_trajet_plaques()
         trajet = self.exporter_gcode()
         with self.sortie:
             self.sortie.clear_output(wait=True)

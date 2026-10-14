@@ -179,7 +179,9 @@ F20 H20      ventilateur 20 %, couches de 0,20 mm   (L45 : ligne 0,45 mm ; ML / 
 3. **Exporter G-code + fiche** (en haut de l'onglet, avec le nom des fichiers et le journal) :
    le G-code et une fiche `.csv` (Excel / LibreOffice) pour noter chaque plaque (transparence,
    bulles, lignes visibles, fils, adhérence), dans le dossier `sorties/` (bouton **Ouvrir le
-   dossier**). La vue de droite montre les plaques tant que l'onglet est ouvert.
+   dossier**). La vue de droite passe aux plaques en ouvrant cet onglet et les garde sur les
+   onglets **Impression** et **Export** ; l'onglet Export exporte alors les plaques. Elle revient à
+   la forme en ouvrant Forme, Déformations, Emboîtement ou Dentelle.
 
 Les plaques s'impriment **l'une après l'autre** : chacune à sa température (ordre croissant pour
 ne jamais attendre le refroidissement), avec une ligne d'amorçage après chaque chauffe, son débit,

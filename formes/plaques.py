@@ -708,7 +708,15 @@ def figure_plaques(cfg: Plaques, p: ParametresImpression | None = None, lot: int
                                    text=[f"#{q.numero}"], textfont=dict(color="white", size=14),
                                    showlegend=False, hoverinfo="skip"))
     fig = _scene(fig, titre)
-    fig.update_layout(scene_camera=dict(eye=dict(x=0.2, y=-0.9, z=1.6)))
+    # plaques très plates : rapport d'aspect imposé (sinon la vue « data » cadre trop près)
+    mn = np.min([q.origine for q in lots[min(lot, len(lots) - 1)]], 0)
+    mx = np.max([q.origine + [q.largeur, q.longueur] for q in lots[min(lot, len(lots) - 1)]], 0)
+    dx, dy = mx - mn
+    m = max(dx, dy)
+    fig.update_layout(scene=dict(aspectmode="manual",
+                                 aspectratio=dict(x=dx / m, y=dy / m, z=0.12),
+                                 zaxis=dict(range=[0, max(6.0, cfg.epaisseur * 2)]),
+                                 camera=dict(eye=dict(x=0.0, y=-1.25, z=1.15))))
     return fig
 
 

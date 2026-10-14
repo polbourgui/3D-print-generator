@@ -113,6 +113,8 @@ DESCRIPTIONS = {
 
 LIBELLES = {"a poser": "à poser", "alveoles": "alvéoles"}
 
+ONGLET_PLAQUES = 5        # position de l'onglet « Plaques test »
+
 APERCU = {"Rapide": (60, 144), "Normal": (120, 240), "Fin": (None, None)}
 
 STYLE = {"description_width": "150px"}
@@ -191,6 +193,8 @@ class Application:
                                "Plaques test", "Export"]):
             onglets.set_title(i, t)
         onglets.layout = W.Layout(width="590px")
+        # la vue suit l'onglet : plaques de test sur « Plaques test », forme ailleurs
+        onglets.observe(lambda _: self.rafraichir(), names="selected_index")
 
         self.qualite = W.ToggleButtons(options=list(APERCU), value="Rapide",
                                        description="Aperçu", style={"button_width": "70px"},
@@ -538,7 +542,7 @@ class Application:
         def curseur(objet, attr, mini, maxi, pas, description, aide=""):
             return self._lier(objet, attr, _curseur(attr, getattr(objet, attr),
                                                     {"min": mini, "max": maxi, "pas": pas, "aide": aide},
-                                                    description), "Plaques", apres=self._maj_plaques)
+                                                    description), "Plaques")
 
         self.plaques_infos = W.HTML()
         filament = W.Button(description="Préréglage PETG transparent Arianeplast", icon="tint",
@@ -562,10 +566,10 @@ class Application:
                                              for v in PL.SERIES[ch["new"]][1])
                 else:
                     valeurs.value = ""
-                self._maj_plaques()
+                self.rafraichir()
 
             menu.observe(choisir, names="value")
-            valeurs.observe(lambda _: self._maj_plaques(), names="value")
+            valeurs.observe(lambda _: self.rafraichir(), names="value")
             self.series.append((menu, valeurs))
             lignes_series += [menu, valeurs]
         self.series[0][1].value = " ".join(str(v) for v in PL.SERIES["Température buse"][1])
@@ -574,26 +578,26 @@ class Application:
                                          ("croisées", "croise")], value=b.motif, description="lignes",
                                 style={**STYLE, "button_width": "100px"},
                                 layout=W.Layout(flex="0 0 auto", min_height="36px"))
-        self._lier(b, "motif", motif, "Plaques", apres=self._maj_plaques)
+        self._lier(b, "motif", motif, "Plaques")
         vent = curseur(b, "ventilateur", 0, 100, 5, "ventilateur (%)")
         face = W.ToggleButtons(options=[("dessous", "dessous"), ("dessus", "dessus"), ("aucune", "aucune")],
                                value=cfg.face, description="empreinte",
                                style={**STYLE, "button_width": "90px"},
                                layout=W.Layout(flex="0 0 auto", min_height="36px"))
-        self._lier(cfg, "face", face, "Plaques", apres=self._maj_plaques)
+        self._lier(cfg, "face", face, "Plaques")
         champs = W.SelectMultiple(options=[("numéro", "numero"), ("T buse", "temp_buse"), ("D débit", "flux"),
                                            ("V vitesse", "vitesse"), ("F ventilateur", "ventilateur"),
                                            ("H couche", "hauteur_couche"), ("L largeur", "largeur_ligne"),
                                            ("M lignes", "motif")],
                                   value=list(cfg.champs), description="texte gravé", rows=8,
                                   style=STYLE, layout=lay)
-        champs.observe(lambda ch: (setattr(cfg, "champs", tuple(ch["new"])), self._maj_plaques()),
+        champs.observe(lambda ch: (setattr(cfg, "champs", tuple(ch["new"])), self.rafraichir()),
                        names="value")
         self.widgets[("Plaques", "champs")] = champs
 
         def case(objet, attr, description):
             return self._lier(objet, attr, W.Checkbox(value=getattr(objet, attr), description=description,
-                                                      indent=False), "Plaques", apres=self._maj_plaques)
+                                                      indent=False), "Plaques")
 
         self.plaque_seule = W.Checkbox(value=False, description="un G-code par plaque", indent=False)
 
@@ -665,7 +669,7 @@ class Application:
                 setattr(self.impression, attr, v)
         finally:
             self._suspendu = False
-        self._maj_plaques()
+        self.rafraichir()
         print("✔ PETG transparent Arianeplast : buse 245 °C, plateau 75 °C, débit 1,05, 25 mm/s, "
               "ventilateur 20 %, couches 0,20 mm (vérifiez la plage indiquée sur la bobine)")
 
@@ -714,15 +718,23 @@ class Application:
             print("✔ STL    :", c)
         print("   (réglages de chaque plaque à saisir dans votre trancheur : voir la fiche CSV)")
 
+    def _sur_plaques(self) -> bool:
+        """L'onglet « Plaques test » est-il ouvert ?"""
+        return getattr(self, "onglets", None) is not None and self.onglets.selected_index == ONGLET_PLAQUES
+
     def voir_plaques(self):
+        """Affiche les plaques dans la vue (automatique quand l'onglet Plaques test est ouvert)."""
         from IPython.display import display
 
+        self._maj_plaques()
         with self.sortie:
             self.sortie.clear_output(wait=True)
-            fig = PL.figure_plaques(self.config_plaques(), self.impression, titre=self.nom.value)
+            fig = PL.figure_plaques(self.config_plaques(), self.impression,
+                                    titre=f"{self.nom.value} : plaques de test")
             fig.update_layout(height=640)
+            self._derniere_figure = fig
             display(fig)
-        print("   (aperçu des plaques affiché ; modifiez un réglage de forme pour revenir)")
+        self.infos.value = self.plaques_infos.value
 
     def voir_trajet_plaques(self):
         from IPython.display import display
@@ -789,6 +801,12 @@ class Application:
     def rafraichir(self):
         from IPython.display import display
 
+        if self._sur_plaques():
+            try:
+                self.voir_plaques()
+            except Exception as e:  # l'aperçu ne doit jamais bloquer l'interface
+                self.infos.value = f"<b style='color:#e8574a'>Erreur : {e}</b>"
+            return
         with self.sortie:
             self.sortie.clear_output(wait=True)
             try:

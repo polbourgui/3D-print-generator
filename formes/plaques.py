@@ -136,6 +136,7 @@ class Plaques:
     trier_temperature: bool = True     # impression par température croissante
     amorce: bool = True                # ligne d'amorçage avant chaque plaque après une chauffe
     degagement_tete: float = 3.0       # hauteur libre sous la tête autour de la buse (mm)
+    z_hop: float = 0.4                 # levée minimale de la buse pendant les déplacements rétractés (mm)
 
     def __post_init__(self):
         self.reglages = [r if isinstance(r, ReglagePlaque) else ReglagePlaque(**r) for r in self.reglages]
@@ -454,17 +455,28 @@ def _segments_ligne(position: float, debut: float, fin: float, trous, axe: int, 
 
 
 def _couche(w: _Ecrivain, q: Plaque, k: int, z: float, v: float):
+    """Une couche : périmètres puis lignes en zigzag.
+
+    La couche commence au coin le plus proche de la buse (là où la précédente s'est
+    terminée) : pas de traversée de la plaque juste au-dessus de la surface imprimée.
+    """
     r = q.reglage
     lw = r.largeur_ligne
     ox, oy = q.origine
+    ici = w.pos[:2] - q.origine                     # position de la buse, en local
+    d = q.perimetres * lw                           # bord intérieur des périmètres
+    # coin de départ : 0/1 = côté x bas/haut, 0/1 = côté y bas/haut
+    cx = int(ici[0] > q.largeur / 2)
+    cy = int(ici[1] > q.longueur / 2)
     for i in range(q.perimetres):
-        d = lw / 2 + i * lw
-        x0, y0, x1, y1 = ox + d, oy + d, ox + q.largeur - d, oy + q.longueur - d
-        boucle = np.array([[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z], [x0, y0, z]])
-        w.extruder(boucle, v, "perimetre")
+        e = lw / 2 + i * lw
+        x0, y0, x1, y1 = ox + e, oy + e, ox + q.largeur - e, oy + q.longueur - e
+        coins = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+        depart = {(0, 0): 0, (1, 0): 1, (1, 1): 2, (0, 1): 3}[(cx, cy)]
+        coins = coins[depart:] + coins[:depart]
+        w.extruder(np.array([[*c, z] for c in coins + coins[:1]]), v, "perimetre")
     # remplissage plein, lignes parallèles en zigzag ; les centres des lignes tombent
     # au milieu des pixels de l'empreinte (voir _empreinte)
-    d = q.perimetres * lw                           # bord intérieur des périmètres
     recouvrement = 0.15 * lw if q.perimetres else 0.0
     long = r.motif == "longitudinal" or (r.motif == "croise" and k % 2 == 0)
     axe = 1 if long else 0                          # axe le long duquel court la ligne
@@ -473,9 +485,13 @@ def _couche(w: _Ecrivain, q: Plaque, k: int, z: float, v: float):
     a_debut = d + lw / 2 - recouvrement
     a_fin = taille[axe] - d - lw / 2 + recouvrement
     positions = np.arange(d + lw / 2, taille[1 - axe] - d - lw / 2 + 1e-6, lw)
+    coin = (cx, cy)
+    if coin[1 - axe]:                               # première ligne du côté du coin de départ
+        positions = positions[::-1]
+    sens_initial = coin[axe]                        # 1 : la première ligne part du côté haut
     for n, pos in enumerate(positions):
         morceaux = _segments_ligne(pos, a_debut, a_fin, trous, axe, lw)
-        if n % 2:
+        if (n + sens_initial) % 2:
             morceaux = [(b, a) for a, b in reversed(morceaux)]
         for a, b in morceaux:
             if axe == 1:
@@ -503,7 +519,8 @@ def generer_gcode_plaques(lot: list[Plaque], cfg: Plaques, p: ParametresImpressi
     # pas de valeurs propres à la 1re couche, sauf pour le plateau
     p = replace(p, temp_buse=premier.temp_buse, hauteur_couche=premier.hauteur_couche,
                 largeur_ligne=premier.largeur_ligne, mode="couches",
-                temp_buse_premiere_couche=None, hauteur_premiere_couche=None)
+                temp_buse_premiere_couche=None, hauteur_premiere_couche=None,
+                z_hop=max(p.z_hop, cfg.z_hop))
     w = _Ecrivain(p)
     av = w.trajet.avertissements
     formes = [q.forme() for q in lot]
@@ -584,6 +601,8 @@ def generer_gcode_plaques(lot: list[Plaque], cfg: Plaques, p: ParametresImpressi
             if k == p.couches_sans_ventilateur and r.ventilateur:
                 w(f"M106 S{round(r.ventilateur * 2.55)}")
             v = min(p.vitesse_premiere_couche, r.vitesse) if k == 0 else r.vitesse
+            if k:                                       # monter d'abord, à la verticale
+                w.deplacer([w.pos[0], w.pos[1], z])
             _couche(w, q, k, z, v)
         w._retracter()
         z_sur = max(z_sur, q.epaisseur)

@@ -211,3 +211,34 @@ def test_application_profil_filament(tmp_path):
     assert app.impression.temp_buse == 210
     app.choix_filament.value = "Mon PETG"
     assert app.impression.temp_buse == 238 and app.impression.filament_nom == "Mon PETG"
+
+
+@pytest.mark.parametrize("motif", ["longitudinal", "transversal", "croise"])
+def test_pas_de_traversee_au_ras_des_plaques(motif):
+    """Changement de couche : la buse repart du coin le plus proche, sans traverser la plaque
+    juste au-dessus de la surface déjà imprimée."""
+    cfg = serie("temp_buse", [240, 250], base=ReglagePlaque(motif=motif))
+    p = machine(z_hop=0.0)
+    lots, _ = disposer(cfg, p)
+    texte, _ = generer_gcode_plaques(lots[0], cfg, p)
+    pos, dessus, longs = np.zeros(3), {}, []
+    for l in texte.splitlines():
+        if not l.startswith(("G0 ", "G1 ")):
+            continue
+        val = dict(re.findall(r"([XYZE])(-?[\d.]+)", l))
+        nouv = pos.copy()
+        for i, a in enumerate("XYZ"):
+            if a in val:
+                nouv[i] = float(val[a])
+        d = np.hypot(*(nouv[:2] - pos[:2]))
+        for q in lots[0]:
+            x0, y0 = q.origine
+            sur = lambda pt: x0 <= pt[0] <= x0 + q.largeur and y0 <= pt[1] <= y0 + q.longueur
+            if l.startswith("G0") and d > 10 and sur((pos[:2] + nouv[:2]) / 2):
+                if min(pos[2], nouv[2]) < dessus.get(q.numero, 0) + 1.0:
+                    longs.append(d)
+            if l.startswith("G1") and "E" in val and "X" in val and sur(nouv):
+                dessus[q.numero] = max(dessus.get(q.numero, 0), nouv[2])
+        pos = nouv
+    assert longs == []
+    assert "G0 Z" in texte                                   # levée minimale des plaques (0,4 mm)

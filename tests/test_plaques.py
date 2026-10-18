@@ -109,7 +109,8 @@ def test_gcode_sequentiel_temperatures_croissantes():
 @pytest.mark.parametrize("face, gravee, pleine", [("dessous", 0.2, 2.0), ("dessus", 2.0, 0.2)])
 def test_empreinte_dans_le_gcode(face, gravee, pleine):
     # lignes transversales : chaque segment reste à y constant, on peut isoler la bande du texte
-    cfg = serie("temp_buse", [245], face=face, base=ReglagePlaque(motif="transversal"))
+    cfg = serie("temp_buse", [245], face=face, base=ReglagePlaque(motif="transversal"),
+                contour_lettres=False)
     p = machine(purge=None)
     lots, _ = disposer(cfg, p)
     texte, _ = generer_gcode_plaques(lots[0], cfg, p)
@@ -235,10 +236,59 @@ def test_pas_de_traversee_au_ras_des_plaques(motif):
             x0, y0 = q.origine
             sur = lambda pt: x0 <= pt[0] <= x0 + q.largeur and y0 <= pt[1] <= y0 + q.longueur
             if l.startswith("G0") and d > 10 and sur((pos[:2] + nouv[:2]) / 2):
-                if min(pos[2], nouv[2]) < dessus.get(q.numero, 0) + 1.0:
+                if min(pos[2], nouv[2]) < dessus.get(q.numero, 0) + 0.3:     # ni au ras, ni sans levée
                     longs.append(d)
             if l.startswith("G1") and "E" in val and "X" in val and sur(nouv):
                 dessus[q.numero] = max(dessus.get(q.numero, 0), nouv[2])
         pos = nouv
     assert longs == []
     assert "G0 Z" in texte                                   # levée minimale des plaques (0,4 mm)
+
+
+def test_police_auto_et_champs_testes():
+    p = machine()
+    q = disposer(serie("temp_buse", [240, 250]), p)[0][0][0]
+    assert q.lignes_texte == ["#1", "T240"]                  # seuls le numéro et le paramètre testé
+    assert max(x1 for _, x1, _, _ in q.trous) - min(x0 for x0, _, _, _ in q.trous) > 15   # police 5×7
+    q = disposer(plan(temp_buse=[240, 250], flux=[1.0, 1.05]), p)[0][0][0]
+    assert q.lignes_texte == ["#1", "T240", "D100"]
+    q = disposer(serie("temp_buse", [240], champs=("numero", "temp_buse", "flux", "vitesse",
+                                                     "ventilateur", "hauteur_couche")), p)[0][0][0]
+    assert len(q.lignes_texte) == 3                          # trop long : retour à la police 3×5
+
+
+def test_miroir_lecture_plateau():
+    p = machine()
+    a = disposer(serie("temp_buse", [240, 250]), p)[0][0][0]
+    b = disposer(serie("temp_buse", [240, 250], lecture="plateau"), p)[0][0][0]
+    milieu = (min(t[0] for t in a.trous) + max(t[1] for t in a.trous)) / 2
+    miroir = sorted((round(2 * milieu - x1, 6), round(2 * milieu - x0, 6), y0, y1) for x0, x1, y0, y1 in a.trous)
+    assert sorted(b.trous) != sorted(a.trous)
+    assert np.allclose(sorted(b.trous), miroir)
+
+
+@pytest.mark.parametrize("face", ["dessous", "dessus"])
+def test_contour_des_lettres(face):
+    """Couches gravées : un périmètre entoure chaque lettre, rien n'est déposé dans les creux."""
+    cfg = serie("temp_buse", [245], face=face)
+    p = machine(purge=None)
+    lots, _ = disposer(cfg, p)
+    q = lots[0][0]
+    assert q.contours
+    lw = q.reglage.largeur_ligne
+    for c in q.contours:                                     # centre du cordon à lw / 2 du creux
+        for x, y in c:
+            d = min(max(x0 - x, x - x1, y0 - y, y - y1, 0) for x0, x1, y0, y1 in q.trous)
+            assert d <= lw / 2 + 1e-6
+    texte, trajet = generer_gcode_plaques(lots[0], cfg, p)
+    z_grave = q.reglage.hauteur_couche * (1 if face == "dessous" else q.couches)
+    for typ, pts in trajet.segments:
+        if typ == "deplacement" or not np.isclose(pts[-1, 2], z_grave):
+            continue
+        # échantillonne chaque segment : aucun point du cordon (à lw / 2 près) dans un creux
+        for a, b in zip(pts[:-1], pts[1:]):
+            for t in np.linspace(0, 1, 9):
+                x, y = (a + (b - a) * t)[:2] - q.origine
+                for x0, x1, y0, y1 in q.trous:
+                    assert not (x0 + lw / 2 - 1e-6 < x < x1 - lw / 2 + 1e-6
+                                and y0 + lw / 2 - 1e-6 < y < y1 - lw / 2 + 1e-6)

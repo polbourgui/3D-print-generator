@@ -127,10 +127,15 @@ class Plaques:
     epaisseur: float = 2.0             # mm (arrondie à un nombre entier de couches)
     perimetres: int = 1
     face: str = "dessous"              # empreinte : dessous | dessus | aucune
-    profondeur: float = 0.6            # profondeur de l'empreinte (mm)
-    taille_pixel: float = 0.9          # pas de la police 3 × 5 (mm), calé sur la largeur de ligne
+    profondeur: float = 0.8            # profondeur de l'empreinte (mm)
+    taille_pixel: float = 0.9          # pas de la police (mm), calé sur la largeur de ligne
     marge_texte: float = 2.0           # distance entre le texte et le bord (mm)
-    champs: tuple = CHAMPS_DEFAUT
+    # None : numéro + paramètres qui changent d'une plaque à l'autre (le reste est dans la fiche)
+    champs: tuple | None = None
+    police: str = "auto"               # auto (la plus grande qui tient) | 5x7 | 3x5
+    hauteur_texte_max: float = 0.4     # part de la longueur occupée au plus par le texte (police auto)
+    contour_lettres: bool = True       # périmètre autour de chaque lettre : bords nets
+    lecture: str = "travers"           # travers (vue de dessus, à travers la plaque) | plateau (miroir)
     ecart: float = 8.0                 # espace entre deux plaques sur le plateau (mm)
     marge_plateau: float = 10.0
     trier_temperature: bool = True     # impression par température croissante
@@ -193,6 +198,59 @@ POLICE = {
 }
 
 
+POLICE_5X7 = {
+    "0": [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
+    "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+    "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+    "3": ["#####", "...#.", "..#..", "...#.", "....#", "#...#", ".###."],
+    "4": ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+    "5": ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+    "6": ["..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."],
+    "7": ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+    "8": [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+    "9": [".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."],
+    "A": [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    "B": ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
+    "C": [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."],
+    "D": ["###..", "#..#.", "#...#", "#...#", "#...#", "#..#.", "###.."],
+    "E": ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+    "F": ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+    "G": [".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".####"],
+    "H": ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    "I": [".###.", "..#..", "..#..", "..#..", "..#..", "..#..", ".###."],
+    "J": ["..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."],
+    "K": ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
+    "L": ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+    "M": ["#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"],
+    "N": ["#...#", "#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#"],
+    "O": [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    "P": ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."],
+    "Q": [".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"],
+    "R": ["####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"],
+    "S": [".####", "#....", "#....", ".###.", "....#", "....#", "####."],
+    "T": ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+    "U": ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    "V": ["#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+    "W": ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "#.#.#", ".#.#."],
+    "X": ["#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"],
+    "Y": ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
+    "Z": ["#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
+    ".": [".....", ".....", ".....", ".....", ".....", ".##..", ".##.."],
+    ",": [".....", ".....", ".....", ".....", ".##..", "..#..", ".#..."],
+    "-": [".....", ".....", ".....", "#####", ".....", ".....", "....."],
+    "+": [".....", "..#..", "..#..", "#####", "..#..", "..#..", "....."],
+    "#": [".#.#.", ".#.#.", "#####", ".#.#.", "#####", ".#.#.", ".#.#."],
+    "%": ["##...", "##..#", "...#.", "..#..", ".#...", "#..##", "...##"],
+    "/": [".....", "....#", "...#.", "..#..", ".#...", "#....", "....."],
+    ":": [".....", ".##..", ".##..", ".....", ".##..", ".##..", "....."],
+    "=": [".....", ".....", "#####", ".....", "#####", ".....", "....."],
+    " ": [".....", ".....", ".....", ".....", ".....", ".....", "....."],
+}
+
+# nom → (glyphes, largeur, hauteur) ; « auto » essaie la plus grande d'abord
+POLICES = {"5x7": (POLICE_5X7, 5, 7), "3x5": (POLICE, 3, 5)}
+
+
 def _couper(mots: list[str], max_car: int) -> list[str]:
     """Regroupe les mots en lignes d'au plus ``max_car`` caractères."""
     lignes, courante = [], ""
@@ -206,19 +264,93 @@ def _couper(mots: list[str], max_car: int) -> list[str]:
     return lignes + [courante] * bool(courante)
 
 
-def texte_pixels(lignes: list[str]) -> np.ndarray:
-    """Masque booléen (rangées, colonnes) ; rangée 0 = haut du texte."""
-    larg = max(len(l) for l in lignes) * 4 - 1
-    img = np.zeros((len(lignes) * 7 - 2, larg), bool)
+def texte_pixels(lignes: list[str], police: str = "3x5", miroir: bool = False) -> np.ndarray:
+    """Masque booléen (rangées, colonnes) ; rangée 0 = haut du texte.
+
+    ``miroir`` : texte retourné gauche-droite, lisible depuis la face posée sur le plateau.
+    """
+    glyphes, gl, gh = POLICES[police]
+    pas_c, pas_r = gl + 1, gh + 2                  # 1 colonne entre les lettres, 2 rangées entre les lignes
+    larg = max(len(l) for l in lignes) * pas_c - 1
+    img = np.zeros((len(lignes) * pas_r - 2, larg), bool)
     for i, ligne in enumerate(lignes):
-        x0 = (larg - (len(ligne) * 4 - 1)) // 2          # lignes centrées
+        x0 = (larg - (len(ligne) * pas_c - 1)) // 2      # lignes centrées
         for j, c in enumerate(ligne.upper()):
-            g = POLICE.get(c, POLICE[" "])
+            g = glyphes.get(c, glyphes[" "])
             for r, rangee in enumerate(g):
                 for k, px in enumerate(rangee):
                     if px == "#":
-                        img[i * 7 + r, x0 + j * 4 + k] = True
-    return img
+                        img[i * pas_r + r, x0 + j * pas_c + k] = True
+    return img[:, ::-1] if miroir else img
+
+
+def champs_effectifs(cfg: "Plaques") -> tuple:
+    """Champs gravés : ceux demandés, sinon le numéro et les paramètres qui varient."""
+    if cfg.champs:
+        return tuple(cfg.champs)
+    ordre = ("temp_buse", "flux", "vitesse", "ventilateur", "hauteur_couche", "largeur_ligne", "motif")
+    varies = [c for c in ordre if len({getattr(r, c) for r in cfg.reglages}) > 1]
+    return ("numero", *varies) if varies else CHAMPS_DEFAUT
+
+
+def _contours(img: np.ndarray, x0: float, y0: float, px: float, decalage: float) -> list[np.ndarray]:
+    """Boucles (N, 2) qui entourent les creux du masque, décalées de ``decalage`` dans la matière.
+
+    Les bords des pixels sont parcourus creux à gauche ; aux contacts en diagonale, la boucle
+    tourne à droite (chaque creux garde sa boucle). Rangée 0 du masque = haut (y max).
+    """
+    rangees, colonnes = img.shape
+    creux = lambda c, r: 0 <= c < colonnes and 0 <= r < rangees and img[rangees - 1 - r, c]
+    aretes = {}
+    for r in range(rangees):
+        for c in range(colonnes):
+            if not creux(c, r):
+                continue
+            if not creux(c, r - 1):
+                aretes.setdefault((c, r), []).append((c + 1, r))
+            if not creux(c + 1, r):
+                aretes.setdefault((c + 1, r), []).append((c + 1, r + 1))
+            if not creux(c, r + 1):
+                aretes.setdefault((c + 1, r + 1), []).append((c, r + 1))
+            if not creux(c - 1, r):
+                aretes.setdefault((c, r + 1), []).append((c, r))
+    boucles = []
+    while aretes:
+        depart = next(iter(aretes))
+        chemin, a, sens = [], depart, None
+        while True:
+            chemin.append(a)
+            suivants = aretes[a]
+            b = suivants[0]
+            if len(suivants) > 1 and sens is not None:   # contact en diagonale : à droite d'abord
+                droite = (a[0] + sens[1], a[1] - sens[0])
+                b = droite if droite in suivants else b
+            suivants.remove(b)
+            if not suivants:
+                del aretes[a]
+            sens = (b[0] - a[0], b[1] - a[1])
+            a = b
+            if a == depart:
+                break
+        pts = np.array(chemin, float)
+        # sommets utiles (changements de direction)
+        n = len(pts)
+
+        def tourne(i):
+            u, v = pts[i] - pts[i - 1], pts[(i + 1) % n] - pts[i]
+            return u[0] * v[1] - u[1] * v[0] != 0
+
+        garde = [i for i in range(n) if tourne(i)]
+        pts = pts[garde]
+        n = len(pts)
+        sortie = []
+        for i in range(n):
+            a_, b_ = pts[i] - pts[i - 1], pts[(i + 1) % n] - pts[i]
+            na = np.array([a_[1], -a_[0]]) / np.linalg.norm(a_)          # normale à droite : matière
+            nb = np.array([b_[1], -b_[0]]) / np.linalg.norm(b_)
+            sortie.append(pts[i] * px + [x0, y0] + decalage * (na + nb))
+        boucles.append(np.array(sortie))
+    return boucles
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +372,7 @@ class Plaque:
     trous: list                        # rectangles (x0, x1, y0, y1) de l'empreinte, en local
     lignes_texte: list
     perimetres: int
+    contours: list = field(default_factory=list)   # boucles autour des lettres (centres du cordon)
 
     @property
     def epaisseur(self) -> float:
@@ -331,29 +464,38 @@ def _difference(a, b):
     return res
 
 
-def _empreinte(cfg: Plaques, r: ReglagePlaque, numero: int, av: list):
-    """Rectangles de l'empreinte (coordonnées locales), calés sur la grille des lignes.
+def _empreinte(cfg: Plaques, r: ReglagePlaque, numero: int, av: list, champs=None):
+    """Creux de l'empreinte, calés sur la grille des lignes.
 
-    Le pas du pixel est un multiple entier de la largeur de ligne et les bords
-    des pixels tombent entre deux lignes : chaque pixel retire exactement des
+    Renvoie (rectangles (x0, x1, y0, y1), lignes de texte, contours des lettres), en
+    coordonnées locales. Le pas du pixel est un multiple entier de la largeur de ligne et
+    les bords des pixels tombent entre deux lignes : chaque pixel retire exactement des
     lignes entières, quel que soit le sens des lignes.
     """
     lw = r.largeur_ligne
     n = max(2, round(cfg.taille_pixel / lw))
     px = n * lw
     debut = cfg.perimetres * lw                    # bord de la zone de remplissage
-    marge = max(cfg.marge_texte, debut + lw)
-    max_col = int((cfg.largeur - 2 * marge) / px)
-    max_car = max((max_col + 1) // 4, 1)
-    mots = r.etiquette(numero, cfg.champs)
+    marge = max(cfg.marge_texte, debut + lw + (lw if cfg.contour_lettres else 0))
+    mots = r.etiquette(numero, champs or champs_effectifs(cfg))
     if not mots or cfg.face == "aucune":
-        return [], []
-    lignes = _couper(mots, max_car)
+        return [], [], []
+    if cfg.police not in ("auto", *POLICES):
+        raise ValueError(f"police inconnue : {cfg.police!r} (auto | {' | '.join(POLICES)})")
+    max_col = int((cfg.largeur - 2 * marge) / px)
+    for police in (POLICES if cfg.police == "auto" else [cfg.police]):
+        gl, gh = POLICES[police][1:]
+        max_car = max((max_col + 1) // (gl + 1), 1)
+        lignes = _couper(mots, max_car)
+        hauteur = (len(lignes) * (gh + 2) - 2) * px
+        if all(len(l) <= max_car for l in lignes) and hauteur <= cfg.hauteur_texte_max * cfg.longueur:
+            break
     trop = [l for l in lignes if len(l) > max_car]
     if trop:
         av.append(f"plaque {numero} : « {trop[0]} » trop large pour la plaque, "
                   "réduisez la taille du texte ou le nombre de champs")
-    img = texte_pixels(lignes)
+    miroir = cfg.lecture == "plateau" and cfg.face == "dessous"
+    img = texte_pixels(lignes, police, miroir)
     rangees, colonnes = img.shape
     if rangees * px > cfg.longueur / 2:
         av.append(f"plaque {numero} : le texte occupe plus de la moitié de la plaque")
@@ -377,7 +519,8 @@ def _empreinte(cfg: Plaques, r: ReglagePlaque, numero: int, av: list):
                 j = k
             else:
                 j += 1
-    return trous, lignes
+    contours = _contours(img, x0, y0, px, lw / 2) if cfg.contour_lettres else []
+    return trous, lignes, [np.round(c, 6) for c in contours]
 
 
 def disposer(cfg: Plaques, p: ParametresImpression,
@@ -387,6 +530,9 @@ def disposer(cfg: Plaques, p: ParametresImpression,
     ``numeros`` : numéros gravés (par défaut 1, 2, 3… dans l'ordre de ``cfg.reglages``).
     """
     numeros = numeros or list(range(1, len(cfg.reglages) + 1))
+    champs = champs_effectifs(cfg)
+    if cfg.lecture not in ("travers", "plateau"):
+        raise ValueError(f"lecture inconnue : {cfg.lecture!r} (travers | plateau)")
     av: list[str] = []
     if cfg.face not in ("dessous", "dessus", "aucune"):
         raise ValueError(f"face inconnue : {cfg.face!r} (dessous | dessus | aucune)")
@@ -416,11 +562,11 @@ def disposer(cfg: Plaques, p: ParametresImpression,
             ligne, col = divmod(k, c)
             # de l'arrière vers l'avant : la tête s'éloigne des plaques déjà faites
             origine = np.array([ox + col * pas_x, oy + (lignes - 1 - ligne) * pas_y])
-            trous, texte = _empreinte(cfg, r, numeros[i], av)
+            trous, texte, contours = _empreinte(cfg, r, numeros[i], av, champs)
             couches = max(int(round(cfg.epaisseur / r.hauteur_couche)), 2)
             emp = min(max(int(round(cfg.profondeur / r.hauteur_couche)), 1), couches - 1)
             lot.append(Plaque(numeros[i], r, origine, cfg.largeur, cfg.longueur, couches, emp,
-                              cfg.face, trous, texte, cfg.perimetres))
+                              cfg.face, trous, texte, cfg.perimetres, contours))
         lots.append(lot)
     if len(lots) > 1:
         av.append(f"{len(cfg.reglages)} plaques : {len(lots)} lots de {par_lot} maximum "
@@ -436,13 +582,20 @@ def disposer(cfg: Plaques, p: ParametresImpression,
 # Trajets
 # ---------------------------------------------------------------------------
 
-def _segments_ligne(position: float, debut: float, fin: float, trous, axe: int, lw: float):
-    """Morceaux d'une ligne (le long de l'axe ``axe``) privés des trous de l'empreinte."""
+def _segments_ligne(position: float, debut: float, fin: float, trous, axe: int, lw: float,
+                    contour: bool = False):
+    """Morceaux d'une ligne (le long de l'axe ``axe``) privés des trous de l'empreinte.
+
+    ``contour`` : un périmètre longe déjà chaque lettre ; la ligne laisse sa place (une largeur
+    de ligne autour du creux) et s'arrête contre lui avec le recouvrement habituel.
+    """
+    marge = lw if contour else 0.0                      # bande du contour, de part et d'autre
+    bout = (1.35 * lw) if contour else lw / 2           # le cordon s'arrête au bord du creux / du contour
     coupes = []
     for x0, x1, y0, y1 in trous:
         a0, a1, b0, b1 = (y0, y1, x0, x1) if axe == 1 else (x0, x1, y0, y1)
-        if b0 < position < b1:
-            coupes.append((a0 - lw / 2, a1 + lw / 2))   # le cordon s'arrête au bord du creux
+        if b0 - marge < position < b1 + marge:
+            coupes.append((a0 - bout, a1 + bout))
     coupes.sort()
     morceaux, cur = [], debut
     for c0, c1 in coupes:
@@ -475,8 +628,21 @@ def _couche(w: _Ecrivain, q: Plaque, k: int, z: float, v: float):
         depart = {(0, 0): 0, (1, 0): 1, (1, 1): 2, (0, 1): 3}[(cx, cy)]
         coins = coins[depart:] + coins[:depart]
         w.extruder(np.array([[*c, z] for c in coins + coins[:1]]), v, "perimetre")
+    # contour des lettres (couches gravées) : bords nets, pas de bouts de lignes dans les creux
+    contours = q.contours if q.grave(k) else []
+    restants = [c + q.origine for c in contours]
+    while restants:
+        i = min(range(len(restants)), key=lambda i: np.linalg.norm(restants[i] - w.pos[:2], axis=1).min())
+        boucle = restants.pop(i)
+        j = int(np.argmin(np.linalg.norm(boucle - w.pos[:2], axis=1)))
+        boucle = np.roll(boucle, -j, axis=0)
+        w.extruder(np.column_stack([np.vstack([boucle, boucle[:1]]), np.full(len(boucle) + 1, z)]),
+                   v, "perimetre")
     # remplissage plein, lignes parallèles en zigzag ; les centres des lignes tombent
     # au milieu des pixels de l'empreinte (voir _empreinte)
+    if contours:                                    # repartir du coin le plus proche des lettres
+        ici = w.pos[:2] - q.origine
+        cx, cy = int(ici[0] > q.largeur / 2), int(ici[1] > q.longueur / 2)
     recouvrement = 0.15 * lw if q.perimetres else 0.0
     long = r.motif == "longitudinal" or (r.motif == "croise" and k % 2 == 0)
     axe = 1 if long else 0                          # axe le long duquel court la ligne
@@ -490,7 +656,7 @@ def _couche(w: _Ecrivain, q: Plaque, k: int, z: float, v: float):
         positions = positions[::-1]
     sens_initial = coin[axe]                        # 1 : la première ligne part du côté haut
     for n, pos in enumerate(positions):
-        morceaux = _segments_ligne(pos, a_debut, a_fin, trous, axe, lw)
+        morceaux = _segments_ligne(pos, a_debut, a_fin, trous, axe, lw, contour=bool(contours))
         if (n + sens_initial) % 2:
             morceaux = [(b, a) for a, b in reversed(morceaux)]
         for a, b in morceaux:
@@ -648,7 +814,8 @@ def exporter_plaques(cfg: Plaques, chemin, p: ParametresImpression | None = None
     chemin.parent.mkdir(parents=True, exist_ok=True)
     lots, alertes = disposer(cfg, p)
     if par_plaque:              # une plaque seule, centrée sur le plateau
-        lots = [disposer(replace(cfg, reglages=[r]), p, [i + 1])[0][0]
+        champs = champs_effectifs(cfg)                 # ceux de la série entière
+        lots = [disposer(replace(cfg, reglages=[r], champs=champs), p, [i + 1])[0][0]
                 for i, r in enumerate(cfg.reglages)]
         alertes = [a for a in alertes if "dégagement" not in a and "lots" not in a]
         chemins = [chemin.with_name(f"{chemin.stem}_plaque{q[0].numero}{chemin.suffix}") for q in lots]
@@ -702,7 +869,7 @@ def exporter_fiche(cfg: Plaques, chemin, p: ParametresImpression | None = None) 
                       "adherence (0-5)", "remarques"])
         for i, r in enumerate(cfg.reglages):
             lot, rang = ordre[i + 1]
-            ecr.writerow([i + 1, lot, rang, " ".join(r.etiquette(i + 1, cfg.champs)), r.temp_buse,
+            ecr.writerow([i + 1, lot, rang, " ".join(r.etiquette(i + 1, champs_effectifs(cfg))), r.temp_buse,
                           p.temp_plateau, f"{r.flux:.2f}".replace(".", ","), f"{r.vitesse:g}".replace(".", ","),
                           r.ventilateur, f"{r.hauteur_couche:.2f}".replace(".", ","),
                           f"{r.largeur_ligne:.2f}".replace(".", ","), r.motif] + [""] * 6)

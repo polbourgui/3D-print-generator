@@ -758,11 +758,35 @@ class Application:
                                            ("V vitesse", "vitesse"), ("F ventilateur", "ventilateur"),
                                            ("H couche", "hauteur_couche"), ("L largeur", "largeur_ligne"),
                                            ("M lignes", "motif")],
-                                  value=list(cfg.champs), description="texte gravé", rows=8,
-                                  style=STYLE, layout=lay)
-        champs.observe(lambda ch: (setattr(cfg, "champs", tuple(ch["new"])), self.rafraichir()),
-                       names="value")
+                                  value=list(PL.CHAMPS_DEFAUT), description="texte gravé", rows=8,
+                                  style=STYLE, layout=W.Layout(width="98%", max_width=LARGEUR,
+                                                               display="none" if cfg.champs is None else ""))
+        champs_auto = W.Checkbox(value=cfg.champs is None, indent=False,
+                                 description="texte automatique : numéro + paramètres testés")
+        champs_auto.tooltip = "moins de texte, police plus grande ; les autres réglages sont dans la fiche"
+
+        def maj_champs(_=None):
+            cfg.champs = None if champs_auto.value else tuple(champs.value)
+            champs.layout.display = "none" if champs_auto.value else ""
+            self.rafraichir()
+
+        champs.observe(maj_champs, names="value")
+        champs_auto.observe(maj_champs, names="value")
         self.widgets[("Plaques", "champs")] = champs
+        self.widgets[("Plaques", "champs_auto")] = champs_auto
+        police = W.ToggleButtons(options=[("auto", "auto"), ("grande 5×7", "5x7"), ("petite 3×5", "3x5")],
+                                 value=cfg.police, description="police",
+                                 style={**STYLE, "button_width": "90px"},
+                                 layout=W.Layout(flex="0 0 auto", min_height="36px"))
+        police.tooltip = "auto : la plus grande qui tient dans la bande du bas"
+        self._lier(cfg, "police", police, "Plaques")
+        lecture = W.ToggleButtons(options=[("à travers la plaque", "travers"), ("côté plateau", "plateau")],
+                                  value=cfg.lecture, description="lecture",
+                                  style={**STYLE, "button_width": "140px"},
+                                  layout=W.Layout(flex="0 0 auto", min_height="36px"))
+        lecture.tooltip = ("côté plateau : texte en miroir, lisible en retournant la plaque "
+                           "(face lisse du plateau) ; empreinte dessous uniquement")
+        self._lier(cfg, "lecture", lecture, "Plaques")
 
         def case(objet, attr, description):
             return self._lier(objet, attr, W.Checkbox(value=getattr(objet, attr), description=description,
@@ -824,9 +848,11 @@ class Application:
             curseur(cfg, "perimetres", 0, 4, 1, "périmètres"),
             face,
             curseur(cfg, "profondeur", 0.2, 2, 0.1, "profondeur (mm)"),
+            lecture,
+            champs_auto, champs, police,
             curseur(cfg, "taille_pixel", 0.6, 2, 0.05, "pixel du texte (mm)",
                     "arrondi à un multiple de la largeur de ligne (2 lignes minimum)"),
-            champs,
+            case(cfg, "contour_lettres", "contour autour des lettres (bords nets)"),
             self._titre("Plateau"),
             curseur(cfg, "ecart", 2, 30, 1, "écart (mm)"),
             curseur(cfg, "degagement_tete", 1, 20, 0.5, "dégagement tête (mm)",

@@ -177,12 +177,33 @@ pleines, en lignes parallèles, chacune avec ses propres réglages. Les réglage
   dessus reste lisse pour juger la transparence ;
 - `dessus` : en creux dans les dernières couches ; `aucune` : sans texte.
 
+Par défaut, seuls le **numéro** et les **paramètres testés** sont gravés (les autres réglages,
+communs à toute la série, sont dans la fiche CSV et l'en-tête du G-code) : moins de texte, donc
+une police plus grande. Série de températures, grille température × débit :
+
 ```
-#3 T245      plaque n° 3, buse 245 °C
-D105 V25     débit 105 %, 25 mm/s
-F20 H20      ventilateur 20 %, couches de 0,20 mm   (L45 : ligne 0,45 mm ; ML / MT / MX : lignes
-                                                     longitudinales / transversales / croisées)
+#3          plaque n° 3               #3
+T245        buse 245 °C               T245
+                                      D105    débit 105 %
 ```
+
+Lettres : `T` buse (°C), `D` débit (%), `V` vitesse (mm/s), `F` ventilateur (%), `H` couche
+(1/100 mm : H20 = 0,20 mm), `L` largeur de ligne (1/100 mm), `ML` / `MT` / `MX` lignes
+longitudinales / transversales / croisées. Pour graver d'autres champs, décochez **texte
+automatique** et choisissez-les.
+
+Lisibilité de l'empreinte :
+
+- **police** `auto` : la grande police 5 × 7 si le texte tient dans 40 % de la longueur, sinon la
+  petite 3 × 5 ; ou imposez l'une ou l'autre. Le pixel vaut deux largeurs de ligne (0,9 mm) ;
+  « pixel du texte » l'agrandit ;
+- **contour autour des lettres** : un périmètre longe chaque lettre dans les couches gravées,
+  les lignes s'arrêtent contre lui ; les bords sont nets, sans bouts de lignes qui filent dans
+  les creux ;
+- **lecture côté plateau** : texte en miroir, lisible en retournant la plaque (la face du plateau
+  est la plus lisse et ne regarde pas à travers 2 mm de lignes) ; « à travers la plaque » le
+  lit vu de dessus ;
+- **profondeur** 0,8 mm par défaut (4 couches de 0,20 mm).
 
 1. **Préréglage PETG transparent Arianeplast** : charge ce profil dans **Réglages › Filament**
    (plateau 80 °C à la 1re couche puis 75 °C, z-hop 0,2 mm, rétraction 1 mm) et règle la base des
